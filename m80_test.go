@@ -1,0 +1,9 @@
+package m80
+
+import "testing"
+
+func TestVersionDefault(t *testing.T) {
+	if Version == "" {
+		t.Fatal("Version must never be empty")
+	}
+}
