@@ -1,3 +1,0 @@
-{
-  "Message": "User: arn:aws:iam::ACCOUNT:user/alex is not authorized to perform: lambda:GetMicrovmImageVersion on resource: arn:aws:lambda:REGION:ACCOUNT:microvm-image:m80-does-not-exist because no resource-based policy allows the lambda:GetMicrovmImageVersion action"
-}

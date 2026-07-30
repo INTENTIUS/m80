@@ -280,16 +280,28 @@ func (h *handlers) delete(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// lookupVersion resolves an image and one of its versions. A missing image
+// reports the version-flavoured message rather than the image one — recorded:
+// the version endpoints answer in terms of the version regardless of which
+// half was actually absent, so this cannot delegate its miss to lookup.
 func (h *handlers) lookupVersion(w http.ResponseWriter, r *http.Request) (*Image, *Version, string, bool) {
-	img, region, ok := h.lookup(w, r)
+	region := api.RegionFromRequest(r)
+	identifier := r.PathValue("imageIdentifier")
+	version := r.PathValue("imageVersion")
+
+	notFoundVersion := func(imageRef string) {
+		notFound(w, fmt.Sprintf("MicroVMImage not found for MicroVMImage: %s, Version: %s",
+			imageRef, version))
+	}
+
+	img, ok := h.svc.Get(region, identifier)
 	if !ok {
+		notFoundVersion(identifier)
 		return nil, nil, region, false
 	}
-	version := r.PathValue("imageVersion")
 	v, ok := img.Version(version)
 	if !ok {
-		notFound(w, fmt.Sprintf("MicroVMImage not found for MicroVMImage: %s, Version: %s",
-			imageARN(region, img.Name), version))
+		notFoundVersion(imageARN(region, img.Name))
 		return nil, nil, region, false
 	}
 	return img, v, region, true

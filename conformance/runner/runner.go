@@ -20,6 +20,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 )
 
+// defaultAccount is m80's own account id, twelve digits so the normalizer
+// flattens it the same way it flattens a real one.
+const defaultAccount = "000000000000"
+
 type Scenario struct {
 	ID string `json:"id"`
 	// Params are template defaults so scenarios run against an emulator
@@ -200,6 +204,19 @@ func (r *Runner) runScenario(s Scenario) []StepResult {
 	// every case silently wrong against any other one — the emulator's
 	// region-scoped catalog rejects a base image from elsewhere, correctly.
 	vars["region"] = r.cfg.Region
+	// account is built in for the same reason as region. A case that probes
+	// a "missing" resource must name one in the caller's own account: an ARN
+	// carrying the 123456789012 placeholder is a foreign account, and live
+	// AWS answers that with 403 AccessDenied — correctly, since cross-account
+	// access needs a resource-based policy no matter how much admin the
+	// caller holds. The default is m80's own account so emulator runs need no
+	// flag; recording runs pass -param account=<real>.
+	vars["account"] = defaultAccount
+	for k, v := range r.cfg.Params {
+		if k == "account" || k == "region" {
+			vars[k] = v
+		}
+	}
 	for k, v := range s.Params {
 		vars[k] = v
 	}

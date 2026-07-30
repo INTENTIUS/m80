@@ -82,8 +82,12 @@ func (h *handlers) run(w http.ResponseWriter, r *http.Request) {
 
 	arn, version, ok := h.images.ResolveRunnable(region, *req.ImageIdentifier)
 	if !ok {
+		// Recorded: RunMicrovm reports the missing *version*, not the missing
+		// image, even when the image itself does not exist. It reads as the
+		// service resolving an image to a runnable version and failing at the
+		// second step regardless of which one was really absent.
 		api.WriteError(w, http.StatusNotFound, "ResourceNotFoundException", map[string]any{
-			"message":      "MicroVMImage not found for MicroVMImageID: " + *req.ImageIdentifier,
+			"message":      "No active version found for MicroVM image " + *req.ImageIdentifier,
 			"resourceId":   nil,
 			"resourceType": nil,
 		})

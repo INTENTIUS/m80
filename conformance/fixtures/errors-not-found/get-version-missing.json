@@ -1,0 +1,5 @@
+{
+  "message": "MicroVMImage not found for MicroVMImage: arn:aws:lambda:REGION:ACCOUNT:microvm-image:m80-does-not-exist, Version: 1.0",
+  "resourceId": null,
+  "resourceType": null
+}
