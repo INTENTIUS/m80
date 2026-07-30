@@ -25,14 +25,14 @@ The IAM policy in KubeMicroVM grants `lambda:*Microvm*`, `lambda:*MicrovmImage*`
 
 ## Protocol notes
 
-The service rides the Lambda endpoint family, so squib listens on one port and dispatches by operation the way the real endpoint does. The SDK's endpoint override points the whole client at squib, which is how the KubeMicroVM operator, the `microvm` CLI with `--direct`, and any SDK consumer attach.
+The service rides the Lambda endpoint family, so m80 listens on one port and dispatches by operation the way the real endpoint does. The SDK's endpoint override points the whole client at m80, which is how the KubeMicroVM operator, the `microvm` CLI with `--direct`, and any SDK consumer attach.
 
 Errors matter as much as happy paths. The conformance suite records the real service's error codes for the standard set. Not found, conflict on double-terminate, validation failures for each enforced limit, throttling shape for the quota tests KubeMicroVM's QuotaGuard exercises. Emulating the throttling envelope is what lets their rate-limiter logic be tested offline.
 
 ## The VM endpoint
 
-Each running VM gets an endpoint URL. squib answers it from the same process, routed by host header or path prefix, returning a configurable stub body and honoring `X-aws-proxy-auth` against issued tokens. Suspended VMs answer the way the real service answers, which the conformance suite must record rather than guess.
+Each running VM gets an endpoint URL. m80 answers it from the same process, routed by host header or path prefix, returning a configurable stub body and honoring `X-aws-proxy-auth` against issued tokens. Suspended VMs answer the way the real service answers, which the conformance suite must record rather than guess.
 
 ## Health and introspection
 
-`/_squib/health` reports implemented operations against the model inventory, the mudflaps convention. A `/_squib/clock` test hook advances the injected clock so lifecycle tests are deterministic and instant.
+`/_m80/health` reports implemented operations against the model inventory, the mudflaps convention. A `/_m80/clock` test hook advances the injected clock so lifecycle tests are deterministic and instant.

@@ -37,4 +37,4 @@ Transient states settle on the injected clock with short deterministic delays, t
 
 ## Drift levers
 
-KubeMicroVM's drift detection and auto-suspend features watch for the service changing state underneath the CRs. squib therefore exposes test levers that mutate state out of band. Force-suspend a VM, fail a build, terminate behind the operator's back. These levers are what make the operator's drift UAT runnable offline, and they are squib's version of mudflaps' failure injection, a feature the real service will never offer a test suite.
+KubeMicroVM's drift detection and auto-suspend features watch for the service changing state underneath the CRs. m80 therefore exposes test levers that mutate state out of band. Force-suspend a VM, fail a build, terminate behind the operator's back. These levers are what make the operator's drift UAT runnable offline, and they are m80's version of mudflaps' failure injection, a feature the real service will never offer a test suite.

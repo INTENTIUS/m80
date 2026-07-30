@@ -12,13 +12,13 @@ Pull the operation inventory and shapes from KubeMicroVM's vendored `service-2.j
 
 One budgeted run against the real service. Convert expectations to fixtures, record error taxonomy, real state strings, throttle envelope, suspended-endpoint behavior. This run retires every "working label" in [lifecycle.md](lifecycle.md).
 
-## M3 — squib itself
+## M3 — m80 itself
 
 Go, single binary, distroless image, injected clock, in-memory store. Implement to the suite. Health endpoint reports coverage against the model inventory. Failure injection and drift levers land with the state machine, not after.
 
 ## M4 — Operator proof
 
-KubeMicroVM on k3d pointed at squib via endpoint override. Run their UAT suite, publish the pass matrix. This is the number that opens the codriverlabs conversation and the kit's local loop in kubemicrovm-ops M3 and M4.
+KubeMicroVM on k3d pointed at m80 via endpoint override. Run their UAT suite, publish the pass matrix. This is the number that opens the codriverlabs conversation and the kit's local loop in kubemicrovm-ops M3 and M4.
 
 ## M5 — Ecosystem
 
@@ -26,7 +26,7 @@ chant integration (`chant emulator up` capability, the kit's local tutorials), b
 
 ## Open questions
 
-The name. squib is the working title. Check for collisions before anything goes public.
+The name is settled. m80, checked 2026-07-29. `intentius/m80` is free on GitHub and the existing m80-named repos are an iOS label library and CP/M-80 retrocomputing projects, no collision in this space. Prior working title was squib, dropped for colliding with a 953-star Ruby project.
 
 Whether the repo goes public at M3 or M4. The operator-proof number is the better launch, but earlier visibility might recruit codriverlabs as design partners.
 

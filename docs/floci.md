@@ -4,7 +4,7 @@
 
 | Concern | Home | Why |
 |---------|------|-----|
-| Full-fidelity service emulation | squib | Owned cadence against a churning preview-fresh API, small container the KubeMicroVM community can adopt, mudflaps mold |
+| Full-fidelity service emulation | m80 | Owned cadence against a churning preview-fresh API, small container the KubeMicroVM community can adopt, mudflaps mold |
 | `AWS::Lambda::MicrovmImage` through CloudFormation | floci | CFN emulation can only live where the CFN engine lives. chant's `MicrovmApp` and the kit's image stack deploy through CFN |
 | Conformance contract | shared suite | See [conformance.md](conformance.md) |
 
@@ -16,8 +16,8 @@ The floci module implements the subset CFN provisioning needs. Image create, get
 
 ## Sequencing
 
-squib first. It unblocks the kubemicrovm-ops kit, the operator community, and behold demos, all of which ride the raw API. The floci contribution follows when the `MicrovmApp` local path is actually wanted, reusing the conformance suite's tagged subset as its acceptance gate.
+m80 first. It unblocks the kubemicrovm-ops kit, the operator community, and behold demos, all of which ride the raw API. The floci contribution follows when the `MicrovmApp` local path is actually wanted, reusing the conformance suite's tagged subset as its acceptance gate.
 
 ## The hedge
 
-If floci upstream grows its own full MicroVM service before the contribution lands, nothing is wasted. The conformance suite validates theirs the same way it validates squib, and squib keeps its distribution niche as the small standalone target next to k3d.
+If floci upstream grows its own full MicroVM service before the contribution lands, nothing is wasted. The conformance suite validates theirs the same way it validates m80, and m80 keeps its distribution niche as the small standalone target next to k3d.
