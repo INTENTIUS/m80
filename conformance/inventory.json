@@ -1,0 +1,418 @@
+{
+  "generated": "from KubeMicroVM vendored service-2.json + aws-sdk-go-v2 cross-check, 2026-07-29",
+  "signingName": "lambda",
+  "operations": [
+    {
+      "operation": "CreateMicrovmAuthToken",
+      "service": "Lambda Microvms",
+      "method": "POST",
+      "uri": "/2025-09-09/microvms/{microvmIdentifier}/auth-token",
+      "responseCode": 200,
+      "errors": [
+        "AccessDeniedException",
+        "InternalServerException",
+        "ResourceNotFoundException",
+        "ThrottlingException",
+        "ValidationException"
+      ]
+    },
+    {
+      "operation": "CreateMicrovmImage",
+      "service": "Lambda Microvms",
+      "method": "POST",
+      "uri": "/2025-09-09/microvm-images",
+      "responseCode": 201,
+      "errors": [
+        "AccessDeniedException",
+        "ConflictException",
+        "InternalServerException",
+        "ResourceNotFoundException",
+        "ServiceQuotaExceededException",
+        "ThrottlingException",
+        "ValidationException"
+      ]
+    },
+    {
+      "operation": "CreateMicrovmShellAuthToken",
+      "service": "Lambda Microvms",
+      "method": "POST",
+      "uri": "/2025-09-09/microvms/{microvmIdentifier}/shell-auth-token",
+      "responseCode": 200,
+      "errors": [
+        "AccessDeniedException",
+        "InternalServerException",
+        "ResourceNotFoundException",
+        "ThrottlingException",
+        "ValidationException"
+      ]
+    },
+    {
+      "operation": "DeleteMicrovmImage",
+      "service": "Lambda Microvms",
+      "method": "DELETE",
+      "uri": "/2025-09-09/microvm-images/{imageIdentifier}",
+      "responseCode": 200,
+      "errors": [
+        "AccessDeniedException",
+        "ConflictException",
+        "InternalServerException",
+        "ResourceNotFoundException",
+        "ThrottlingException",
+        "ValidationException"
+      ]
+    },
+    {
+      "operation": "DeleteMicrovmImageVersion",
+      "service": "Lambda Microvms",
+      "method": "DELETE",
+      "uri": "/2025-09-09/microvm-images/{imageIdentifier}/versions/{imageVersion}",
+      "responseCode": 200,
+      "errors": [
+        "AccessDeniedException",
+        "ConflictException",
+        "InternalServerException",
+        "ResourceNotFoundException",
+        "ThrottlingException",
+        "ValidationException"
+      ]
+    },
+    {
+      "operation": "GetMicrovm",
+      "service": "Lambda Microvms",
+      "method": "GET",
+      "uri": "/2025-09-09/microvms/{microvmIdentifier}",
+      "responseCode": 200,
+      "errors": [
+        "AccessDeniedException",
+        "InternalServerException",
+        "ResourceNotFoundException",
+        "ThrottlingException",
+        "ValidationException"
+      ]
+    },
+    {
+      "operation": "GetMicrovmImage",
+      "service": "Lambda Microvms",
+      "method": "GET",
+      "uri": "/2025-09-09/microvm-images/{imageIdentifier}",
+      "responseCode": 200,
+      "errors": [
+        "AccessDeniedException",
+        "InternalServerException",
+        "ResourceNotFoundException",
+        "ThrottlingException",
+        "ValidationException"
+      ]
+    },
+    {
+      "operation": "GetMicrovmImageBuild",
+      "service": "Lambda Microvms",
+      "method": "GET",
+      "uri": "/2025-09-09/microvm-images/{imageIdentifier}/versions/{imageVersion}/builds/{buildId}",
+      "responseCode": 200,
+      "errors": [
+        "AccessDeniedException",
+        "InternalServerException",
+        "ResourceNotFoundException",
+        "ThrottlingException",
+        "ValidationException"
+      ]
+    },
+    {
+      "operation": "GetMicrovmImageVersion",
+      "service": "Lambda Microvms",
+      "method": "GET",
+      "uri": "/2025-09-09/microvm-images/{imageIdentifier}/versions/{imageVersion}",
+      "responseCode": 200,
+      "errors": [
+        "AccessDeniedException",
+        "InternalServerException",
+        "ResourceNotFoundException",
+        "ThrottlingException",
+        "ValidationException"
+      ]
+    },
+    {
+      "operation": "ListManagedMicrovmImageVersions",
+      "service": "Lambda Microvms",
+      "method": "GET",
+      "uri": "/2025-09-09/managed-microvm-images/{imageIdentifier}/versions",
+      "responseCode": 200,
+      "errors": [
+        "AccessDeniedException",
+        "InternalServerException",
+        "ResourceNotFoundException",
+        "ThrottlingException",
+        "ValidationException"
+      ]
+    },
+    {
+      "operation": "ListManagedMicrovmImages",
+      "service": "Lambda Microvms",
+      "method": "GET",
+      "uri": "/2025-09-09/managed-microvm-images",
+      "responseCode": 200,
+      "errors": [
+        "AccessDeniedException",
+        "InternalServerException",
+        "ThrottlingException",
+        "ValidationException"
+      ]
+    },
+    {
+      "operation": "ListMicrovmImageBuilds",
+      "service": "Lambda Microvms",
+      "method": "GET",
+      "uri": "/2025-09-09/microvm-images/{imageIdentifier}/versions/{imageVersion}/builds",
+      "responseCode": 200,
+      "errors": [
+        "AccessDeniedException",
+        "InternalServerException",
+        "ResourceNotFoundException",
+        "ThrottlingException",
+        "ValidationException"
+      ]
+    },
+    {
+      "operation": "ListMicrovmImageVersions",
+      "service": "Lambda Microvms",
+      "method": "GET",
+      "uri": "/2025-09-09/microvm-images/{imageIdentifier}/versions",
+      "responseCode": 200,
+      "errors": [
+        "AccessDeniedException",
+        "InternalServerException",
+        "ResourceNotFoundException",
+        "ThrottlingException",
+        "ValidationException"
+      ]
+    },
+    {
+      "operation": "ListMicrovmImages",
+      "service": "Lambda Microvms",
+      "method": "GET",
+      "uri": "/2025-09-09/microvm-images",
+      "responseCode": 200,
+      "errors": [
+        "AccessDeniedException",
+        "InternalServerException",
+        "ThrottlingException",
+        "ValidationException"
+      ]
+    },
+    {
+      "operation": "ListMicrovms",
+      "service": "Lambda Microvms",
+      "method": "GET",
+      "uri": "/2025-09-09/microvms",
+      "responseCode": 200,
+      "errors": [
+        "AccessDeniedException",
+        "InternalServerException",
+        "ResourceNotFoundException",
+        "ThrottlingException",
+        "ValidationException"
+      ]
+    },
+    {
+      "operation": "ListTags",
+      "service": "Lambda Microvms",
+      "method": "GET",
+      "uri": "/2017-03-31/tags/{Resource}",
+      "responseCode": 200,
+      "errors": [
+        "InvalidParameterValueException",
+        "ResourceNotFoundException",
+        "ServiceException",
+        "TooManyRequestsException"
+      ]
+    },
+    {
+      "operation": "ResumeMicrovm",
+      "service": "Lambda Microvms",
+      "method": "POST",
+      "uri": "/2025-09-09/microvms/{microvmIdentifier}/resume",
+      "responseCode": 200,
+      "errors": [
+        "AccessDeniedException",
+        "ConflictException",
+        "InternalServerException",
+        "ResourceNotFoundException",
+        "ThrottlingException",
+        "ValidationException"
+      ]
+    },
+    {
+      "operation": "RunMicrovm",
+      "service": "Lambda Microvms",
+      "method": "POST",
+      "uri": "/2025-09-09/microvms",
+      "responseCode": 200,
+      "errors": [
+        "AccessDeniedException",
+        "ConflictException",
+        "InternalServerException",
+        "ResourceNotFoundException",
+        "ServiceQuotaExceededException",
+        "ThrottlingException",
+        "ValidationException"
+      ]
+    },
+    {
+      "operation": "SuspendMicrovm",
+      "service": "Lambda Microvms",
+      "method": "POST",
+      "uri": "/2025-09-09/microvms/{microvmIdentifier}/suspend",
+      "responseCode": 200,
+      "errors": [
+        "AccessDeniedException",
+        "ConflictException",
+        "InternalServerException",
+        "ResourceNotFoundException",
+        "ThrottlingException",
+        "ValidationException"
+      ]
+    },
+    {
+      "operation": "TagResource",
+      "service": "Lambda Microvms",
+      "method": "POST",
+      "uri": "/2017-03-31/tags/{Resource}",
+      "responseCode": 204,
+      "errors": [
+        "InvalidParameterValueException",
+        "ResourceConflictException",
+        "ResourceNotFoundException",
+        "ServiceException",
+        "TooManyRequestsException"
+      ]
+    },
+    {
+      "operation": "TerminateMicrovm",
+      "service": "Lambda Microvms",
+      "method": "DELETE",
+      "uri": "/2025-09-09/microvms/{microvmIdentifier}",
+      "responseCode": 200,
+      "errors": [
+        "AccessDeniedException",
+        "ConflictException",
+        "InternalServerException",
+        "ResourceNotFoundException",
+        "ThrottlingException",
+        "ValidationException"
+      ]
+    },
+    {
+      "operation": "UntagResource",
+      "service": "Lambda Microvms",
+      "method": "DELETE",
+      "uri": "/2017-03-31/tags/{Resource}",
+      "responseCode": 204,
+      "errors": [
+        "InvalidParameterValueException",
+        "ResourceConflictException",
+        "ResourceNotFoundException",
+        "ServiceException",
+        "TooManyRequestsException"
+      ]
+    },
+    {
+      "operation": "UpdateMicrovmImage",
+      "service": "Lambda Microvms",
+      "method": "PUT",
+      "uri": "/2025-09-09/microvm-images/{imageIdentifier}",
+      "responseCode": 200,
+      "errors": [
+        "AccessDeniedException",
+        "ConflictException",
+        "InternalServerException",
+        "ResourceNotFoundException",
+        "ServiceQuotaExceededException",
+        "ThrottlingException",
+        "ValidationException"
+      ]
+    },
+    {
+      "operation": "UpdateMicrovmImageVersion",
+      "service": "Lambda Microvms",
+      "method": "PATCH",
+      "uri": "/2025-09-09/microvm-images/{imageIdentifier}/versions/{imageVersion}",
+      "responseCode": 200,
+      "errors": [
+        "AccessDeniedException",
+        "ConflictException",
+        "InternalServerException",
+        "ResourceNotFoundException",
+        "ThrottlingException",
+        "ValidationException"
+      ]
+    },
+    {
+      "operation": "CreateNetworkConnector",
+      "service": "Lambda Core",
+      "method": "POST",
+      "uri": "/2026-04-04/network-connectors",
+      "responseCode": 202,
+      "errors": [
+        "InvalidParameterValueException",
+        "NetworkConnectorLimitExceededException",
+        "ResourceConflictException",
+        "ServiceException",
+        "TooManyRequestsException"
+      ]
+    },
+    {
+      "operation": "DeleteNetworkConnector",
+      "service": "Lambda Core",
+      "method": "DELETE",
+      "uri": "/2026-04-04/network-connectors/{Identifier}",
+      "responseCode": 202,
+      "errors": [
+        "InvalidParameterValueException",
+        "ResourceConflictException",
+        "ResourceNotFoundException",
+        "ServiceException",
+        "TooManyRequestsException"
+      ]
+    },
+    {
+      "operation": "GetNetworkConnector",
+      "service": "Lambda Core",
+      "method": "GET",
+      "uri": "/2026-04-04/network-connectors/{Identifier}",
+      "responseCode": 200,
+      "errors": [
+        "InvalidParameterValueException",
+        "ResourceNotFoundException",
+        "ServiceException",
+        "TooManyRequestsException"
+      ]
+    },
+    {
+      "operation": "ListNetworkConnectors",
+      "service": "Lambda Core",
+      "method": "GET",
+      "uri": "/2026-04-04/network-connectors",
+      "responseCode": 200,
+      "errors": [
+        "InvalidParameterValueException",
+        "ServiceException",
+        "TooManyRequestsException"
+      ]
+    },
+    {
+      "operation": "UpdateNetworkConnector",
+      "service": "Lambda Core",
+      "method": "PUT",
+      "uri": "/2026-04-04/network-connectors/{Identifier}",
+      "responseCode": 202,
+      "errors": [
+        "InvalidParameterValueException",
+        "ResourceConflictException",
+        "ResourceNotFoundException",
+        "ServiceException",
+        "TooManyRequestsException"
+      ]
+    }
+  ]
+}
