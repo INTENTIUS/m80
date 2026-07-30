@@ -60,6 +60,18 @@ func (s *Service) Get(region, identifier string) (*Image, bool) {
 	return s.collection(region).Get(nameOf(region, identifier))
 }
 
+// ResolveRunnable implements the vms package's ImageResolver: an image that
+// exists but has no version that finished building cannot back a VM, so a
+// run against a still-CREATING image is a miss rather than a VM that would
+// never start.
+func (s *Service) ResolveRunnable(region, identifier string) (string, string, bool) {
+	img, ok := s.Get(region, identifier)
+	if !ok || img.LatestActive == nil {
+		return "", "", false
+	}
+	return imageARN(region, img.Name), *img.LatestActive, true
+}
+
 // List returns images sorted by name, so responses are stable across calls.
 func (s *Service) List(region string) []*Image {
 	c := s.collection(region)

@@ -171,12 +171,18 @@ func (r *Runner) Run(scenarios []Scenario) []StepResult {
 
 func (r *Runner) runScenario(s Scenario) []StepResult {
 	vars := map[string]string{}
+	// region is built in, so a case can spell an ARN once and have it follow
+	// whatever region the run signs for. Hardcoding a region in a param made
+	// every case silently wrong against any other one — the emulator's
+	// region-scoped catalog rejects a base image from elsewhere, correctly.
+	vars["region"] = r.cfg.Region
 	for k, v := range s.Params {
 		vars[k] = v
 	}
 	for k, v := range r.cfg.Params {
 		vars[k] = v
 	}
+	resolveVars(vars)
 	var results []StepResult
 	failed := false
 	for _, st := range s.Steps {
@@ -405,6 +411,28 @@ func (r *Runner) captureVars(st Step, body []byte, vars map[string]string) {
 	for name, path := range st.Capture {
 		if v, ok := dotPath(body, path); ok {
 			vars[name] = v
+		}
+	}
+}
+
+// resolveVars lets one param reference another, so a case can build an ARN
+// out of ${region} instead of pinning one. Iterated rather than recursive:
+// a couple of passes covers any nesting a case plausibly has, and a cycle
+// stops instead of hanging.
+func resolveVars(vars map[string]string) {
+	for range 5 {
+		changed := false
+		for k, v := range vars {
+			if !strings.Contains(v, "${") {
+				continue
+			}
+			if next := substitute(v, vars); next != v {
+				vars[k] = next
+				changed = true
+			}
+		}
+		if !changed {
+			return
 		}
 	}
 }

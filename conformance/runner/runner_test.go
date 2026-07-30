@@ -331,6 +331,39 @@ func TestRecordOmitsObservedStatesWhenNoTransition(t *testing.T) {
 	}
 }
 
+// A case spells an ARN once with ${region} and it follows whatever region the
+// run signs for. Pinning one made every case silently wrong elsewhere.
+func TestResolveVarsExpandsRegionIntoParams(t *testing.T) {
+	vars := map[string]string{
+		"region":       "eu-west-1",
+		"baseImageArn": "arn:aws:lambda:${region}:aws:microvm-image:al2023-1",
+		"nested":       "${baseImageArn}/versions",
+		"plain":        "no placeholders",
+	}
+	resolveVars(vars)
+	if got, want := vars["baseImageArn"], "arn:aws:lambda:eu-west-1:aws:microvm-image:al2023-1"; got != want {
+		t.Errorf("baseImageArn %q, want %q", got, want)
+	}
+	if got, want := vars["nested"], "arn:aws:lambda:eu-west-1:aws:microvm-image:al2023-1/versions"; got != want {
+		t.Errorf("nested %q, want %q", got, want)
+	}
+	if vars["plain"] != "no placeholders" {
+		t.Errorf("plain %q", vars["plain"])
+	}
+}
+
+// A cycle must stop rather than spin.
+func TestResolveVarsTerminatesOnCycle(t *testing.T) {
+	vars := map[string]string{"a": "${b}", "b": "${a}"}
+	done := make(chan struct{})
+	go func() { resolveVars(vars); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("resolveVars did not terminate on a cycle")
+	}
+}
+
 func TestNormalize(t *testing.T) {
 	in := []byte(`{"arn":"arn:aws:lambda:eu-west-1:123456789012:microvm:abc","authToken":"s3cret","when":"2026-07-29T10:00:00.123Z"}`)
 	var doc map[string]any

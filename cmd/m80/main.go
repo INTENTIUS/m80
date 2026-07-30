@@ -23,6 +23,7 @@ import (
 	"github.com/intentius/m80/internal/images"
 	"github.com/intentius/m80/internal/managedimages"
 	"github.com/intentius/m80/internal/store"
+	"github.com/intentius/m80/internal/vms"
 )
 
 func main() {
@@ -51,8 +52,12 @@ func main() {
 	clk := clock.Real{}
 	srv := api.NewServer(clk, st, m80.Version)
 	managedimages.Register(srv)
-	// VMs are #10; until then nothing can be running off an image.
-	images.Register(srv, images.NewService(clk, st, *buildDelay), nil)
+	imageSvc := images.NewService(clk, st, *buildDelay)
+	vmSvc := vms.NewService(clk, st, *buildDelay)
+	// Each side asks the other one question: images refuses to delete while a
+	// VM runs, and vms refuses to run an image with nothing built.
+	images.Register(srv, imageSvc, vmSvc)
+	vms.Register(srv, vmSvc, imageSvc)
 
 	impl := len(srv.Implemented())
 	log.Info("m80 starting",

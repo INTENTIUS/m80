@@ -26,6 +26,16 @@ Outcomes: `pass`, `fail`, `unimplemented` (HTTP 501, valid for a target under co
 
 `<step>.meta.json` next to each fixture carries what the body cannot. `status` and `errorType` are asserted — they are the wire facts error mapping depends on. `observedStates` is recorded truth only, never asserted: it lists the distinct states an `until` poll walked through, so the live service's transition order survives a recording run instead of being discarded in favor of the settled response. An emulator that settles instantly walks a shorter path and is still conformant on every observable state, so gating on it would fail floci by design.
 
+`region` is a built-in param, set from `-region`, and scenario params may reference each other — so a case spells a base image ARN once as `arn:aws:lambda:${region}:aws:microvm-image:al2023-1` and it follows whatever region the run signs for. Pinning a region in a param made every case silently wrong against any other one, since a correct implementation scopes its managed-image catalog by region and rejects a base image from elsewhere.
+
 Scenario `params` defaults must reproduce the *normalized* shape of whatever was recorded, since fixture comparison covers echoed request values. `codeArtifactUri` defaults to a bucket named like the recording one (`m80-conformance-<account>-use2`) for exactly this reason: the account digits flatten to `ACCOUNT` on both sides, so an emulator echoing the default matches a live recording made against the real bucket. A default that does not normalize to the recorded string fails every target, correct ones included.
 
-A fixture renamed to `<step>.json.rejected-<reason>` is a recording the suite refuses to treat as truth. `errors-not-found/get-vm-missing` is the standing example: the probe used the pre-recording guess `mv-…` for a VM id, real ids are `microvm-<uuid>`, and the API gateway answered the malformed path with an nginx `502` HTML page that got recorded as if it were service behavior. The case now probes a well-formed id and the step needs re-recording.
+## Rejected fixtures
+
+A fixture renamed to `<step>.json.rejected-<reason>` is a recording the suite refuses to treat as truth, because it captured the recording *account* rather than the service. They are kept rather than deleted: each one is evidence, and each cost a live session.
+
+`rejected-502` — the probe used the pre-recording guess `mv-…` for a VM id. Real ids are `microvm-<uuid>`, and the API gateway answered the malformed path with an nginx `502` HTML page. Re-recorded clean once the case used a well-formed id.
+
+`rejected-account-iam` — three not-found probes against a nonexistent image ARN came back `403 AccessDeniedException` rather than a not-found, because the recording account's IAM policy is resource-scoped and the invented ARN falls outside it. The bodies name the caller (`user/alex`) and use a capital-M `Message`, both tells that the response came from the IAM layer rather than the service. No emulator can reproduce them, m80 does not evaluate IAM by design, and the cases' own `expect` blocks say `ResourceNotFoundException` — so the recording contradicts the case's intent. Re-recording these needs an account whose policy covers `lambda:*` on `*`.
+
+`rejected-account-history` — `ListMicrovms` returns every VM the account has ever run, terminated ones included and apparently forever. A recorded list is therefore a photograph of one account at one moment and can never equal a fresh target's. List steps over resources that accumulate need a different check than full equality.
