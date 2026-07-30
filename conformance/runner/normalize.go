@@ -47,6 +47,13 @@ var (
 	// <uuid>.lambda-microvm.<region>.on.aws — so ARN-only region redaction
 	// leaves fixtures pinned to the recording region.
 	reRegion = regexp.MustCompile(`\b(af|ap|ca|cn|eu|il|me|sa|us)-(gov-)?(central|north|northeast|northwest|south|southeast|southwest|east|west)-[0-9]\b`)
+
+	// versionStateTimeBucket packs a state and the UTC hour it was reached
+	// into one string, e.g. "SUCCESSFUL#26073006". The state half is real
+	// conformance signal and stays; the YYMMDDHH half is wall clock, so a
+	// recording can only ever equal a target that ran in the same hour of
+	// the same day. Keeping it would make the step pass or fail by clock.
+	reStateBucket = regexp.MustCompile(`^([A-Z_]+)#\d{8}$`)
 )
 
 // arnRedact flattens the region and any 12-digit account in an ARN prefix,
@@ -76,7 +83,8 @@ func normalizeNode(key string, node any) any {
 		if reSecretKey.MatchString(key) {
 			return "REDACTED"
 		}
-		s := reARN.ReplaceAllStringFunc(v, arnRedact)
+		s := reStateBucket.ReplaceAllString(v, "${1}#TIMESTAMP")
+		s = reARN.ReplaceAllStringFunc(s, arnRedact)
 		s = reShortID.ReplaceAllString(s, "${1}-ID")
 		s = reRegion.ReplaceAllString(s, "REGION")
 		s = reAccount.ReplaceAllString(s, "ACCOUNT")

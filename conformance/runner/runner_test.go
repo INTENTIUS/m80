@@ -362,6 +362,9 @@ func TestNormalizeShortIDsAndRegion(t *testing.T) {
 		// id already reads nc-UUID there.
 		{"connector recorded as UUID", `{"v":"nc-UUID"}`, `{"v":"nc-99e2dfd679d24b399"}`},
 		{"endpoint region", `{"v":"x.lambda-microvm.us-east-2.on.aws"}`, `{"v":"x.lambda-microvm.us-east-1.on.aws"}`},
+		// Recorded in one hour, replayed in another: without this the step
+		// passes or fails by wall clock.
+		{"version state time bucket", `{"v":"SUCCESSFUL#26073006"}`, `{"v":"SUCCESSFUL#26073018"}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got, want := string(Normalize([]byte(tc.emulated))), string(Normalize([]byte(tc.live))); got != want {
@@ -373,7 +376,7 @@ func TestNormalizeShortIDsAndRegion(t *testing.T) {
 
 // Redaction must not swallow the values a conformance run exists to compare.
 func TestNormalizeKeepsMeaningfulValues(t *testing.T) {
-	in := []byte(`{"name":"m80-conf-image","state":"CREATING","version":"1.0","base":"al2023-1","uri":"s3://m80-conformance-123456789012-use2/code.zip"}`)
+	in := []byte(`{"name":"m80-conf-image","state":"CREATING","version":"1.0","base":"al2023-1","uri":"s3://m80-conformance-123456789012-use2/code.zip","bucket":"SUCCESSFUL#26073006"}`)
 	var doc map[string]any
 	if err := json.Unmarshal(Normalize(in), &doc); err != nil {
 		t.Fatal(err)
@@ -384,6 +387,8 @@ func TestNormalizeKeepsMeaningfulValues(t *testing.T) {
 		"version": "1.0",
 		"base":    "al2023-1",
 		"uri":     "s3://m80-conformance-ACCOUNT-use2/code.zip",
+		// The state half of a bucket survives; only its clock half goes.
+		"bucket": "SUCCESSFUL#TIMESTAMP",
 	} {
 		if doc[k] != want {
 			t.Errorf("%s: got %v, want %v", k, doc[k], want)

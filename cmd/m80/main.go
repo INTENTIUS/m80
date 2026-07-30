@@ -20,6 +20,7 @@ import (
 	"github.com/intentius/m80"
 	"github.com/intentius/m80/internal/api"
 	"github.com/intentius/m80/internal/clock"
+	"github.com/intentius/m80/internal/images"
 	"github.com/intentius/m80/internal/managedimages"
 	"github.com/intentius/m80/internal/store"
 )
@@ -28,6 +29,10 @@ func main() {
 	addr := flag.String("addr", ":4290", "listen address")
 	logLevel := flag.String("log-level", "info", "debug, info, warn or error")
 	showVersion := flag.Bool("version", false, "print the version and exit")
+	// One hop of a build state machine. Short enough that a conformance run
+	// is quick, long enough that a demo shows the intermediate states rather
+	// than jumping straight to CREATED.
+	buildDelay := flag.Duration("build-delay", time.Second, "delay per build state transition")
 	flag.Parse()
 
 	if *showVersion {
@@ -42,8 +47,12 @@ func main() {
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
-	srv := api.NewServer(clock.Real{}, store.New(), m80.Version)
+	st := store.New()
+	clk := clock.Real{}
+	srv := api.NewServer(clk, st, m80.Version)
 	managedimages.Register(srv)
+	// VMs are #10; until then nothing can be running off an image.
+	images.Register(srv, images.NewService(clk, st, *buildDelay), nil)
 
 	impl := len(srv.Implemented())
 	log.Info("m80 starting",
