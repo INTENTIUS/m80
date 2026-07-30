@@ -2,7 +2,7 @@
 
 A standalone, stateful local emulator of the AWS Lambda MicroVMs API. Like LocalStack, but for Lambda MicroVMs. The M-80 is the most famous firecracker there is, and m80 emulates a Firecracker-backed service.
 
-**Status: design phase. This repo is documentation only. No code yet, and it stays local until the design settles.**
+**Status: design phase. This repo is documentation only, no code yet.** The design documents below are the current deliverable; implementation starts at M3 on the [roadmap](docs/roadmap.md).
 
 m80 follows the pattern of [mudflaps](https://github.com/intentius/mudflaps) (Fly Machines) and [spritzer](https://github.com/intentius/spritzer) (Fly Sprites). A single static Go binary and distroless container that holds MicroVM images, VMs, tokens, and network connectors in memory, advances them through their lifecycle on an injected clock, and answers the real wire protocol so any SDK client works against it via endpoint override.
 
@@ -13,7 +13,7 @@ Nothing like it exists. Verified 2026-07-29 across moto, LocalStack (archived), 
 | Consumer | How |
 |----------|-----|
 | [KubeMicroVM](https://github.com/codriverlabs/KubeMicroVM) operator | SDK endpoint override, next to k3d, in their UAT and CI |
-| [kubemicrovm-ops](../kubemicrovm-ops/) kit | Local end-to-end loop for install Op and lifecycle work |
+| kubemicrovm-ops, a chant adoption kit for KubeMicroVM (in design) | Local end-to-end loop for install Op and lifecycle work |
 | chant fly-style activities and behold demos | Accountless local apply |
 | Anyone building on the MicroVM SDK | A stateful test target instead of hand-rolled mocks |
 
