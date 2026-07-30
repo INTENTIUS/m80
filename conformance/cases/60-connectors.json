@@ -1,0 +1,64 @@
+{
+  "id": "connectors",
+  "params": {
+    "subnetId": "subnet-00000000000000001",
+    "securityGroupId": "sg-00000000000000001"
+  },
+  "tags": ["documented-only"],
+  "steps": [
+    {
+      "name": "create",
+      "operation": "CreateNetworkConnector",
+      "method": "POST",
+      "path": "/2026-04-04/network-connectors",
+      "body": {
+        "Name": "m80-conf-connector",
+        "Configuration": {
+          "VpcEgressConfiguration": {
+            "SubnetIds": ["${subnetId}"],
+            "SecurityGroupIds": ["${securityGroupId}"]
+          }
+        }
+      },
+      "expect": { "status": 202, "bodyMatch": { "Name": "m80-conf-connector" } },
+      "capture": { "connectorId": "Id" }
+    },
+    {
+      "name": "get-until-active",
+      "operation": "GetNetworkConnector",
+      "method": "GET",
+      "path": "/2026-04-04/network-connectors/${connectorId}",
+      "expect": { "status": 200 },
+      "until": { "path": "State", "equals": "ACTIVE", "timeoutSec": 900, "intervalSec": 5 }
+    },
+    {
+      "name": "list",
+      "operation": "ListNetworkConnectors",
+      "method": "GET",
+      "path": "/2026-04-04/network-connectors",
+      "expect": { "status": 200 }
+    },
+    {
+      "name": "update",
+      "operation": "UpdateNetworkConnector",
+      "method": "PUT",
+      "path": "/2026-04-04/network-connectors/${connectorId}",
+      "body": {
+        "Configuration": {
+          "VpcEgressConfiguration": {
+            "SubnetIds": ["${subnetId}"],
+            "SecurityGroupIds": ["${securityGroupId}"]
+          }
+        }
+      },
+      "expect": { "status": 202 }
+    },
+    {
+      "name": "delete",
+      "operation": "DeleteNetworkConnector",
+      "method": "DELETE",
+      "path": "/2026-04-04/network-connectors/${connectorId}",
+      "expect": { "status": 202 }
+    }
+  ]
+}

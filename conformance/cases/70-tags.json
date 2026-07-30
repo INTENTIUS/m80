@@ -1,0 +1,54 @@
+{
+  "id": "tags-api",
+  "params": {
+    "baseImageArn": "arn:aws:lambda:us-east-1:aws:microvm-image:al2023-1",
+    "buildRoleArn": "arn:aws:iam::123456789012:role/m80-conformance-build",
+    "codeArtifactUri": "s3://m80-conformance/code.zip"
+  },
+  "tags": ["documented-only"],
+  "steps": [
+    {
+      "name": "create-image",
+      "operation": "CreateMicrovmImage",
+      "method": "POST",
+      "path": "/2025-09-09/microvm-images",
+      "body": {
+        "name": "m80-conf-tags-image",
+        "baseImageArn": "${baseImageArn}",
+        "buildRoleArn": "${buildRoleArn}",
+        "codeArtifact": { "uri": "${codeArtifactUri}" }
+      },
+      "expect": { "status": 201 },
+      "capture": { "imageName": "name", "imageArn": "imageArn" }
+    },
+    {
+      "name": "tag",
+      "operation": "TagResource",
+      "method": "POST",
+      "path": "/2017-03-31/tags/${imageArn}",
+      "body": { "Tags": { "m80": "conformance" } },
+      "expect": { "status": 204 }
+    },
+    {
+      "name": "list-tags",
+      "operation": "ListTags",
+      "method": "GET",
+      "path": "/2017-03-31/tags/${imageArn}",
+      "expect": { "status": 200, "bodyMatch": { "Tags": { "m80": "conformance" } } }
+    },
+    {
+      "name": "untag",
+      "operation": "UntagResource",
+      "method": "DELETE",
+      "path": "/2017-03-31/tags/${imageArn}?tagKeys=m80",
+      "expect": { "status": 204 }
+    },
+    {
+      "name": "delete-image",
+      "operation": "DeleteMicrovmImage",
+      "method": "DELETE",
+      "path": "/2025-09-09/microvm-images/${imageName}",
+      "expect": { "status": 200 }
+    }
+  ]
+}

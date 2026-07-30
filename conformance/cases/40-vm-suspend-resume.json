@@ -1,0 +1,97 @@
+{
+  "id": "vm-suspend-resume",
+  "params": {
+    "baseImageArn": "arn:aws:lambda:us-east-1:aws:microvm-image:al2023-1",
+    "buildRoleArn": "arn:aws:iam::123456789012:role/m80-conformance-build",
+    "codeArtifactUri": "s3://m80-conformance/code.zip"
+  },
+  "tags": ["documented-only", "lifecycle"],
+  "steps": [
+    {
+      "name": "create-image",
+      "operation": "CreateMicrovmImage",
+      "method": "POST",
+      "path": "/2025-09-09/microvm-images",
+      "body": {
+        "name": "m80-conf-suspend-image",
+        "baseImageArn": "${baseImageArn}",
+        "buildRoleArn": "${buildRoleArn}",
+        "codeArtifact": { "uri": "${codeArtifactUri}" }
+      },
+      "expect": { "status": 201 },
+      "capture": { "imageName": "name", "imageVersion": "imageVersion" }
+    },
+    {
+      "name": "version-until-built",
+      "operation": "GetMicrovmImageVersion",
+      "method": "GET",
+      "path": "/2025-09-09/microvm-images/${imageName}/versions/${imageVersion}",
+      "expect": { "status": 200 },
+      "until": { "path": "state", "equals": "SUCCESSFUL", "timeoutSec": 2700, "intervalSec": 10 }
+    },
+    {
+      "name": "run",
+      "operation": "RunMicrovm",
+      "method": "POST",
+      "path": "/2025-09-09/microvms",
+      "body": {
+        "imageIdentifier": "${imageName}",
+        "idlePolicy": { "maxIdleDurationSeconds": 900, "suspendedDurationSeconds": 1800 }
+      },
+      "expect": { "status": 200 },
+      "capture": { "microvmId": "microvmId" }
+    },
+    {
+      "name": "get-until-running",
+      "operation": "GetMicrovm",
+      "method": "GET",
+      "path": "/2025-09-09/microvms/${microvmId}",
+      "expect": { "status": 200 },
+      "until": { "path": "state", "equals": "RUNNING", "timeoutSec": 600, "intervalSec": 5 }
+    },
+    {
+      "name": "suspend",
+      "operation": "SuspendMicrovm",
+      "method": "POST",
+      "path": "/2025-09-09/microvms/${microvmId}/suspend",
+      "expect": { "status": 200 }
+    },
+    {
+      "name": "get-until-suspended",
+      "operation": "GetMicrovm",
+      "method": "GET",
+      "path": "/2025-09-09/microvms/${microvmId}",
+      "expect": { "status": 200 },
+      "until": { "path": "state", "equals": "SUSPENDED", "timeoutSec": 600, "intervalSec": 5 }
+    },
+    {
+      "name": "resume",
+      "operation": "ResumeMicrovm",
+      "method": "POST",
+      "path": "/2025-09-09/microvms/${microvmId}/resume",
+      "expect": { "status": 200 }
+    },
+    {
+      "name": "get-until-running-again",
+      "operation": "GetMicrovm",
+      "method": "GET",
+      "path": "/2025-09-09/microvms/${microvmId}",
+      "expect": { "status": 200 },
+      "until": { "path": "state", "equals": "RUNNING", "timeoutSec": 600, "intervalSec": 5 }
+    },
+    {
+      "name": "terminate",
+      "operation": "TerminateMicrovm",
+      "method": "DELETE",
+      "path": "/2025-09-09/microvms/${microvmId}",
+      "expect": { "status": 200 }
+    },
+    {
+      "name": "delete-image",
+      "operation": "DeleteMicrovmImage",
+      "method": "DELETE",
+      "path": "/2025-09-09/microvm-images/${imageName}",
+      "expect": { "status": 200 }
+    }
+  ]
+}

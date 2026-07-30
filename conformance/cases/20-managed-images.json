@@ -1,0 +1,21 @@
+{
+  "id": "managed-images",
+  "params": { "managedImageId": "al2023-1" },
+  "tags": ["documented-only"],
+  "steps": [
+    {
+      "name": "list",
+      "operation": "ListManagedMicrovmImages",
+      "method": "GET",
+      "path": "/2025-09-09/managed-microvm-images",
+      "expect": { "status": 200 }
+    },
+    {
+      "name": "list-versions",
+      "operation": "ListManagedMicrovmImageVersions",
+      "method": "GET",
+      "path": "/2025-09-09/managed-microvm-images/${managedImageId}/versions",
+      "expect": { "status": 200 }
+    }
+  ]
+}
