@@ -1,0 +1,42 @@
+{
+  "id": "errors-not-found",
+  "tags": ["documented-only", "errors"],
+  "steps": [
+    {
+      "name": "get-vm-missing",
+      "operation": "GetMicrovm",
+      "method": "GET",
+      "path": "/2025-09-09/microvms/mv-m80-does-not-exist",
+      "expect": { "errorType": "ResourceNotFoundException" }
+    },
+    {
+      "name": "get-image-missing",
+      "operation": "GetMicrovmImage",
+      "method": "GET",
+      "path": "/2025-09-09/microvm-images/m80-does-not-exist",
+      "expect": { "errorType": "ResourceNotFoundException" }
+    },
+    {
+      "name": "get-version-missing",
+      "operation": "GetMicrovmImageVersion",
+      "method": "GET",
+      "path": "/2025-09-09/microvm-images/m80-does-not-exist/versions/1",
+      "expect": { "errorType": "ResourceNotFoundException" }
+    },
+    {
+      "name": "get-connector-missing",
+      "operation": "GetNetworkConnector",
+      "method": "GET",
+      "path": "/2026-04-04/network-connectors/nc-m80-does-not-exist",
+      "expect": { "errorTypeOneOf": ["ResourceNotFoundException", "InvalidParameterValueException"] }
+    },
+    {
+      "name": "run-vm-missing-image",
+      "operation": "RunMicrovm",
+      "method": "POST",
+      "path": "/2025-09-09/microvms",
+      "body": { "imageIdentifier": "m80-does-not-exist" },
+      "expect": { "errorTypeOneOf": ["ResourceNotFoundException", "ValidationException"] }
+    }
+  ]
+}

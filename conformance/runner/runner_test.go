@@ -215,6 +215,39 @@ func TestNormalize(t *testing.T) {
 	}
 }
 
+func TestScenarioParamDefaultsAndOverride(t *testing.T) {
+	srv := stub()
+	defer srv.Close()
+	cases := t.TempDir()
+	writeScenario(t, cases, "p.json", Scenario{
+		ID:     "params",
+		Params: map[string]string{"img": "ghost"},
+		Steps: []Step{{
+			Name: "get", Operation: "GetMicrovmImage",
+			Method: "GET", Path: "/2025-09-09/microvm-images/${img}",
+			Expect: Expect{Status: 200},
+		}},
+	})
+
+	// Scenario default resolves to the 404 route.
+	r := newTestRunner(t, srv.URL, cases, t.TempDir(), false, nil)
+	scenarios, _ := r.LoadScenarios()
+	if got := outcomes(r.Run(scenarios))["params/get"]; got != Fail {
+		t.Errorf("default param: got %s, want fail (404 route)", got)
+	}
+
+	// CLI param overrides the scenario default and hits the 200 route.
+	r = New(Config{
+		Endpoint: srv.URL, CasesDir: cases, FixturesDir: t.TempDir(),
+		Params:      map[string]string{"img": "img1"},
+		Credentials: aws.Credentials{AccessKeyID: "test", SecretAccessKey: "test"},
+	})
+	scenarios, _ = r.LoadScenarios()
+	if got := outcomes(r.Run(scenarios))["params/get"]; got != Pass {
+		t.Errorf("override param: got %s, want pass", got)
+	}
+}
+
 func TestCoverageReport(t *testing.T) {
 	inv := Inventory{Operations: []InventoryOp{
 		{Operation: "CreateMicrovmImage"}, {Operation: "GetMicrovm"},

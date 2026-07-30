@@ -21,9 +21,12 @@ import (
 )
 
 type Scenario struct {
-	ID    string   `json:"id"`
-	Tags  []string `json:"tags"`
-	Steps []Step   `json:"steps"`
+	ID string `json:"id"`
+	// Params are template defaults so scenarios run against an emulator
+	// unmodified; CLI -param values override them for recording runs.
+	Params map[string]string `json:"params,omitempty"`
+	Tags   []string          `json:"tags"`
+	Steps  []Step            `json:"steps"`
 }
 
 type Step struct {
@@ -162,6 +165,9 @@ func (r *Runner) Run(scenarios []Scenario) []StepResult {
 
 func (r *Runner) runScenario(s Scenario) []StepResult {
 	vars := map[string]string{}
+	for k, v := range s.Params {
+		vars[k] = v
+	}
 	for k, v := range r.cfg.Params {
 		vars[k] = v
 	}

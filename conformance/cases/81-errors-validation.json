@@ -1,0 +1,57 @@
+{
+  "id": "errors-validation",
+  "params": {
+    "baseImageArn": "arn:aws:lambda:us-east-1:aws:microvm-image:al2023-1",
+    "buildRoleArn": "arn:aws:iam::123456789012:role/m80-conformance-build",
+    "codeArtifactUri": "s3://m80-conformance/code.zip",
+    "subnetId": "subnet-00000000000000001",
+    "securityGroupId": "sg-00000000000000001"
+  },
+  "tags": ["documented-only", "errors"],
+  "steps": [
+    {
+      "name": "create-image-bad-name",
+      "operation": "CreateMicrovmImage",
+      "method": "POST",
+      "path": "/2025-09-09/microvm-images",
+      "body": {
+        "name": "bad name!",
+        "baseImageArn": "${baseImageArn}",
+        "buildRoleArn": "${buildRoleArn}",
+        "codeArtifact": { "uri": "${codeArtifactUri}" }
+      },
+      "expect": { "errorType": "ValidationException" }
+    },
+    {
+      "name": "create-image-missing-required",
+      "operation": "CreateMicrovmImage",
+      "method": "POST",
+      "path": "/2025-09-09/microvm-images",
+      "body": { "name": "m80-missing-required" },
+      "expect": { "errorType": "ValidationException" }
+    },
+    {
+      "name": "connector-too-many-subnets",
+      "operation": "CreateNetworkConnector",
+      "method": "POST",
+      "path": "/2026-04-04/network-connectors",
+      "body": {
+        "Name": "m80-conf-too-many-subnets",
+        "Configuration": {
+          "VpcEgressConfiguration": {
+            "SubnetIds": [
+              "subnet-00000000000000001", "subnet-00000000000000002", "subnet-00000000000000003",
+              "subnet-00000000000000004", "subnet-00000000000000005", "subnet-00000000000000006",
+              "subnet-00000000000000007", "subnet-00000000000000008", "subnet-00000000000000009",
+              "subnet-00000000000000010", "subnet-00000000000000011", "subnet-00000000000000012",
+              "subnet-00000000000000013", "subnet-00000000000000014", "subnet-00000000000000015",
+              "subnet-00000000000000016", "subnet-00000000000000017"
+            ],
+            "SecurityGroupIds": ["${securityGroupId}"]
+          }
+        }
+      },
+      "expect": { "errorTypeOneOf": ["InvalidParameterValueException", "ValidationException"] }
+    }
+  ]
+}
