@@ -1,42 +1,66 @@
 {
   "id": "errors-not-found",
-  "tags": ["documented-only", "errors"],
+  "tags": [
+    "documented-only",
+    "errors"
+  ],
   "steps": [
     {
       "name": "get-vm-missing",
       "operation": "GetMicrovm",
       "method": "GET",
-      "path": "/2025-09-09/microvms/mv-m80-does-not-exist",
-      "expect": { "errorType": "ResourceNotFoundException" }
+      "path": "/2025-09-09/microvms/microvm-00000000-0000-0000-0000-000000000000",
+      "expect": {
+        "errorType": "ResourceNotFoundException"
+      }
     },
     {
       "name": "get-image-missing",
       "operation": "GetMicrovmImage",
       "method": "GET",
-      "path": "/2025-09-09/microvm-images/m80-does-not-exist",
-      "expect": { "errorType": "ResourceNotFoundException" }
+      "path": "/2025-09-09/microvm-images/${missingImageArn}",
+      "expect": {
+        "errorType": "ResourceNotFoundException"
+      }
     },
     {
       "name": "get-version-missing",
       "operation": "GetMicrovmImageVersion",
       "method": "GET",
-      "path": "/2025-09-09/microvm-images/m80-does-not-exist/versions/1",
-      "expect": { "errorType": "ResourceNotFoundException" }
+      "path": "/2025-09-09/microvm-images/${missingImageArn}/versions/1.0",
+      "expect": {
+        "errorType": "ResourceNotFoundException"
+      }
     },
     {
       "name": "get-connector-missing",
       "operation": "GetNetworkConnector",
       "method": "GET",
       "path": "/2026-04-04/network-connectors/nc-m80-does-not-exist",
-      "expect": { "errorTypeOneOf": ["ResourceNotFoundException", "InvalidParameterValueException"] }
+      "expect": {
+        "errorTypeOneOf": [
+          "ResourceNotFoundException",
+          "InvalidParameterValueException"
+        ]
+      }
     },
     {
       "name": "run-vm-missing-image",
       "operation": "RunMicrovm",
       "method": "POST",
       "path": "/2025-09-09/microvms",
-      "body": { "imageIdentifier": "m80-does-not-exist" },
-      "expect": { "errorTypeOneOf": ["ResourceNotFoundException", "ValidationException"] }
+      "body": {
+        "imageIdentifier": "${missingImageArn}"
+      },
+      "expect": {
+        "errorTypeOneOf": [
+          "ResourceNotFoundException",
+          "ValidationException"
+        ]
+      }
     }
-  ]
+  ],
+  "params": {
+    "missingImageArn": "arn:aws:lambda:us-east-1:123456789012:microvm-image:m80-does-not-exist"
+  }
 }

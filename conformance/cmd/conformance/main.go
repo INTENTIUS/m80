@@ -19,6 +19,7 @@ func main() {
 	fixtures := flag.String("fixtures", "conformance/fixtures", "fixture directory")
 	tags := flag.String("tags", "", "comma-separated tags a scenario must all carry")
 	record := flag.Bool("record", false, "record fixtures from responses instead of asserting")
+	maxPoll := flag.Float64("poll-timeout", 0, "cap every until timeout, in seconds (0 keeps case values; use ~15 against an emulator)")
 	asJSON := flag.Bool("json", false, "JSON report on stdout")
 	inventoryPath := flag.String("inventory", "conformance/inventory.json", "operation inventory")
 	var params paramFlags
@@ -48,6 +49,7 @@ func main() {
 		FixturesDir: *fixtures,
 		TagFilter:   tagFilter,
 		Record:      *record,
+		MaxPollSec:  *maxPoll,
 		Params:      params.m,
 		Credentials: runner.CredentialsFromEnv(),
 	})

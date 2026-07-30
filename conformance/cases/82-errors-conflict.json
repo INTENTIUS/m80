@@ -3,9 +3,13 @@
   "params": {
     "baseImageArn": "arn:aws:lambda:us-east-1:aws:microvm-image:al2023-1",
     "buildRoleArn": "arn:aws:iam::123456789012:role/m80-conformance-build",
-    "codeArtifactUri": "s3://m80-conformance/code.zip"
+    "codeArtifactUri": "s3://m80-conformance-123456789012-use2/code.zip"
   },
-  "tags": ["documented-only", "errors", "lifecycle"],
+  "tags": [
+    "documented-only",
+    "errors",
+    "lifecycle"
+  ],
   "steps": [
     {
       "name": "create-image",
@@ -16,64 +20,108 @@
         "name": "m80-conf-conflict-image",
         "baseImageArn": "${baseImageArn}",
         "buildRoleArn": "${buildRoleArn}",
-        "codeArtifact": { "uri": "${codeArtifactUri}" }
+        "codeArtifact": {
+          "uri": "${codeArtifactUri}"
+        }
       },
-      "expect": { "status": 201 },
-      "capture": { "imageName": "name", "imageVersion": "imageVersion" }
+      "expect": {
+        "status": 201
+      },
+      "capture": {
+        "imageName": "name",
+        "imageVersion": "imageVersion",
+        "imageArn": "imageArn"
+      }
     },
     {
       "name": "version-until-built",
       "operation": "GetMicrovmImageVersion",
       "method": "GET",
-      "path": "/2025-09-09/microvm-images/${imageName}/versions/${imageVersion}",
-      "expect": { "status": 200 },
-      "until": { "path": "state", "equals": "SUCCESSFUL", "timeoutSec": 2700, "intervalSec": 10 }
+      "path": "/2025-09-09/microvm-images/${imageArn}/versions/${imageVersion}",
+      "expect": {
+        "status": 200
+      },
+      "until": {
+        "path": "state",
+        "equals": "SUCCESSFUL",
+        "timeoutSec": 2700,
+        "intervalSec": 10
+      }
     },
     {
       "name": "run",
       "operation": "RunMicrovm",
       "method": "POST",
       "path": "/2025-09-09/microvms",
-      "body": { "imageIdentifier": "${imageName}" },
-      "expect": { "status": 200 },
-      "capture": { "microvmId": "microvmId" }
+      "body": {
+        "imageIdentifier": "${imageArn}"
+      },
+      "expect": {
+        "status": 200
+      },
+      "capture": {
+        "microvmId": "microvmId"
+      }
     },
     {
       "name": "get-until-running",
       "operation": "GetMicrovm",
       "method": "GET",
       "path": "/2025-09-09/microvms/${microvmId}",
-      "expect": { "status": 200 },
-      "until": { "path": "state", "equals": "RUNNING", "timeoutSec": 600, "intervalSec": 5 }
+      "expect": {
+        "status": 200
+      },
+      "until": {
+        "path": "state",
+        "equals": "RUNNING",
+        "timeoutSec": 600,
+        "intervalSec": 5
+      }
     },
     {
       "name": "terminate",
       "operation": "TerminateMicrovm",
       "method": "DELETE",
       "path": "/2025-09-09/microvms/${microvmId}",
-      "expect": { "status": 200 }
+      "expect": {
+        "status": 200
+      }
     },
     {
       "name": "get-until-terminated",
       "operation": "GetMicrovm",
       "method": "GET",
       "path": "/2025-09-09/microvms/${microvmId}",
-      "expect": { "status": 200 },
-      "until": { "path": "state", "equals": "TERMINATED", "timeoutSec": 600, "intervalSec": 5 }
+      "expect": {
+        "status": 200
+      },
+      "until": {
+        "path": "state",
+        "equals": "TERMINATED",
+        "timeoutSec": 600,
+        "intervalSec": 5
+      }
     },
     {
       "name": "suspend-terminated",
       "operation": "SuspendMicrovm",
       "method": "POST",
       "path": "/2025-09-09/microvms/${microvmId}/suspend",
-      "expect": { "errorTypeOneOf": ["ConflictException", "ValidationException"] }
+      "expect": {
+        "errorTypeOneOf": [
+          "ConflictException",
+          "ValidationException"
+        ]
+      }
     },
     {
       "name": "delete-image",
       "operation": "DeleteMicrovmImage",
       "method": "DELETE",
-      "path": "/2025-09-09/microvm-images/${imageName}",
-      "expect": { "status": 200 }
+      "path": "/2025-09-09/microvm-images/${imageArn}",
+      "expect": {
+        "status": 200
+      }
     }
   ]
 }

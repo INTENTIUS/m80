@@ -1,0 +1,17 @@
+{
+  "architecture": "ARM_64",
+  "buildId": "UUID",
+  "buildState": "SUCCESSFUL",
+  "chipset": "GRAVITON",
+  "chipsetGeneration": "4",
+  "createdAt": "TIMESTAMP",
+  "imageArn": "arn:aws:lambda:REGION:ACCOUNT:microvm-image:m80-conf-image",
+  "imageVersion": "1.0",
+  "snapshotBuild": {
+    "codeInstallSizeInBytes": 186400768,
+    "diskSnapshotSizeInBytes": 25600000,
+    "memorySnapshotSizeInBytes": 609087488
+  },
+  "stateReason": null,
+  "terminationReasonCode": null
+}

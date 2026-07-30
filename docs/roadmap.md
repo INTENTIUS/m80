@@ -6,11 +6,13 @@ This repo. Docs only, local only. Exits when the operation inventory is extracte
 
 ## M1 — Model extraction and suite skeleton
 
-Partially done 2026-07-29. The operation inventory (24 + 5 operations across two services), state enums, error shapes, and throttle reasons are extracted from KubeMicroVM's vendored models into [api-surface.md](api-surface.md) and [lifecycle.md](lifecycle.md). Remaining: cross-check against aws-sdk-go-v2's model for divergence, then write the conformance suite skeleton. No emulator code.
+Done 2026-07-29. The operation inventory (24 + 5 operations across two services), state enums, error shapes, and throttle reasons are extracted from KubeMicroVM's vendored models into [api-surface.md](api-surface.md) and [lifecycle.md](lifecycle.md). The aws-sdk-go-v2 cross-check found no divergence, and `conformance/cmd/modelwatch` now re-runs that check against both vendored models on a schedule. The suite skeleton covers all 29 operations. No emulator code.
 
 ## M2 — Fixture recording
 
-One budgeted run against the real service, now much smaller than first scoped since the model gave up shapes, enums, and error taxonomy for free. What only the live service can answer: transition order (does resume pass through `PENDING`), which operation returns which error when, suspended-endpoint and token behavior, the throttle envelope in practice. This run retires every remaining recording target in [lifecycle.md](lifecycle.md).
+Run 2026-07-29. All ten scenarios are fixture-backed and 19 recorded corrections landed in [api-surface.md](api-surface.md), including four connector members the models mark optional and the service enforces, two connector types absent from the model's enum, and the asynchronous delete and update windows.
+
+Three targets outlived the run and need a second, smaller session. Transition order was not captured because the harness kept only the settled response of each poll — fixed since, the runner now records the states an `until` walks through, but the answer needs a live run to collect. Token and endpoint behavior for a suspended VM had no steps at all; the token half is now a case (`auth-token-while-suspended`), the endpoint half needs the runner to address a VM's own hostname rather than the control-plane endpoint. The throttle probe was never authored. One fixture, `errors-not-found/get-vm-missing`, recorded a gateway `502` against a malformed VM id and is set aside as `.rejected-502` pending a re-record.
 
 ## M3 — m80 itself
 
@@ -28,8 +30,8 @@ chant integration (`chant emulator up` capability, the kit's local tutorials), b
 
 The name is settled. m80, checked 2026-07-29. `intentius/m80` is free on GitHub and the existing m80-named repos are an iOS label library and CP/M-80 retrocomputing projects, no collision in this space. Prior working title was squib, dropped for colliding with a 953-star Ruby project.
 
-Whether the repo goes public at M3 or M4. The operator-proof number is the better launch, but earlier visibility might recruit codriverlabs as design partners.
+Token and endpoint behavior for suspended VMs. Docs are silent and the first recording run did not answer it, having no step that touched a suspended VM with a token operation. The token case exists now; the endpoint probe is still unexpressible in the harness.
 
-Token and endpoint behavior for suspended VMs. Docs are silent, M2 records it.
+What the throttle probe should actually do. `ThrottleReason` enumerates six reasons and `ConcurrentSnapshotCreateLimitExceeded` is the one QuotaGuard testing cares about, but which operation to burst, at what rate, and how much account-level throttling risk is acceptable are maintainer calls, not defaults to guess.
 
-Whether the vendored service model in KubeMicroVM is complete and current, or whether the SDK's own model diverges. Half answered, the vendored models parse clean and carry full shapes. The aws-sdk-go-v2 cross-check remains.
+Resolved: the repo went public 2026-07-30, ahead of the M3-or-M4 question. The vendored models parse clean, carry full shapes, and agree with aws-sdk-go-v2; `modelwatch` keeps that true.

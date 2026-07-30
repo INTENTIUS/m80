@@ -1,0 +1,11 @@
+{
+  "createdAt": "TIMESTAMP",
+  "id": "UUID",
+  "imageArn": "arn:aws:lambda:REGION:ACCOUNT:microvm-image:m80-conf-image",
+  "latestActiveImageVersion": "1.0",
+  "latestFailedImageVersion": null,
+  "name": "m80-conf-image",
+  "state": "CREATED",
+  "tags": {},
+  "updatedAt": "TIMESTAMP"
+}

@@ -84,6 +84,12 @@ type Config struct {
 	FixturesDir string
 	TagFilter   []string // scenario runs if it carries every listed tag
 	Record      bool
+	// MaxPollSec caps every until timeout. Case timeouts are sized for real
+	// AWS, where a build legitimately takes 45 minutes; against an emulator
+	// the same numbers mean a state the target does not model burns its full
+	// timeout before the step fails. Zero keeps the case values, which is
+	// what a recording run needs.
+	MaxPollSec  float64
 	Params      map[string]string
 	Credentials aws.Credentials
 	HTTPClient  *http.Client
@@ -195,15 +201,27 @@ func (r *Runner) runStep(s Scenario, st Step, vars map[string]string) (Outcome, 
 	deadline := time.Now().Add(time.Duration(1) * time.Second)
 	interval := time.Duration(0)
 	if st.Until != nil {
-		if st.Until.TimeoutSec <= 0 {
-			st.Until.TimeoutSec = 30
+		// Locals, not writes back through the pointer: st.Until is shared
+		// with the loaded scenario.
+		timeoutSec, intervalSec := st.Until.TimeoutSec, st.Until.IntervalSec
+		if timeoutSec <= 0 {
+			timeoutSec = 30
 		}
-		if st.Until.IntervalSec <= 0 {
-			st.Until.IntervalSec = 1
+		if intervalSec <= 0 {
+			intervalSec = 1
 		}
-		deadline = time.Now().Add(time.Duration(st.Until.TimeoutSec * float64(time.Second)))
-		interval = time.Duration(st.Until.IntervalSec * float64(time.Second))
+		if r.cfg.MaxPollSec > 0 && timeoutSec > r.cfg.MaxPollSec {
+			timeoutSec = r.cfg.MaxPollSec
+		}
+		deadline = time.Now().Add(time.Duration(timeoutSec * float64(time.Second)))
+		interval = time.Duration(intervalSec * float64(time.Second))
 	}
+
+	// Distinct values the poll passes through, in order. Only the settled
+	// response is kept as a fixture, so without this the transition order —
+	// the thing a live recording run is uniquely able to answer — is thrown
+	// away every time.
+	var observed []string
 
 	for {
 		status, body, errType, err := r.request(st, vars)
@@ -216,6 +234,9 @@ func (r *Runner) runStep(s Scenario, st Step, vars map[string]string) (Outcome, 
 
 		if st.Until != nil {
 			got, _ := dotPath(body, st.Until.Path)
+			if len(observed) == 0 || observed[len(observed)-1] != got {
+				observed = append(observed, got)
+			}
 			if got != st.Until.Equals {
 				if time.Now().After(deadline) {
 					return Fail, fmt.Sprintf("until %s=%q not reached, last %q", st.Until.Path, st.Until.Equals, got), false
@@ -225,7 +246,7 @@ func (r *Runner) runStep(s Scenario, st Step, vars map[string]string) (Outcome, 
 			}
 		}
 
-		outcome, detail, fixture := r.check(s, st, status, body, errType)
+		outcome, detail, fixture := r.check(s, st, status, body, errType, observed)
 		if outcome == Pass {
 			r.captureVars(st, body, vars)
 		}
@@ -279,7 +300,7 @@ func errorType(h http.Header, body []byte) string {
 	return t
 }
 
-func (r *Runner) check(s Scenario, st Step, status int, body []byte, errType string) (Outcome, string, bool) {
+func (r *Runner) check(s Scenario, st Step, status int, body []byte, errType string, observed []string) (Outcome, string, bool) {
 	fixPath := filepath.Join(r.cfg.FixturesDir, s.ID, st.Name+".json")
 
 	if r.cfg.Record {
@@ -287,6 +308,12 @@ func (r *Runner) check(s Scenario, st Step, status int, body []byte, errType str
 			return Fail, fmt.Sprintf("recording aborted: status %d, want %d: %s", status, st.Expect.Status, truncate(body)), false
 		}
 		if err := writeFixture(fixPath, body); err != nil {
+			return Errored, err.Error(), false
+		}
+		// The body alone loses the wire facts error mapping needs — status
+		// code and the modeled error type ride the headers. Sidecar them,
+		// along with the states the poll walked through to get here.
+		if err := writeMeta(fixPath, status, errType, observed); err != nil {
 			return Errored, err.Error(), false
 		}
 		return Pass, "recorded", true
@@ -316,8 +343,17 @@ func (r *Runner) check(s Scenario, st Step, status int, body []byte, errType str
 		}
 	}
 
-	// A fixture, when present, is the strongest check: full normalized equality.
+	// A fixture, when present, is the strongest check: full normalized equality,
+	// plus the recorded status and error type when a meta sidecar exists.
 	if raw, err := os.ReadFile(fixPath); err == nil {
+		if meta, err := readMeta(fixPath); err == nil {
+			if meta.Status != 0 && status != meta.Status {
+				return Fail, fmt.Sprintf("status %d, recorded %d", status, meta.Status), true
+			}
+			if meta.ErrorType != errType {
+				return Fail, fmt.Sprintf("error type %q, recorded %q", errType, meta.ErrorType), true
+			}
+		}
 		want, got := Normalize(raw), Normalize(body)
 		if !jsonEqual(want, got) {
 			return Fail, "response diverges from fixture " + fixPath, true
@@ -325,6 +361,44 @@ func (r *Runner) check(s Scenario, st Step, status int, body []byte, errType str
 		return Pass, "", true
 	}
 	return Pass, "", false
+}
+
+type fixtureMeta struct {
+	Status    int    `json:"status"`
+	ErrorType string `json:"errorType,omitempty"`
+	// ObservedStates is recorded truth, not an assertion. An emulator that
+	// settles instantly walks a shorter path than the live service and is
+	// still conformant on every observable endpoint state; asserting this
+	// would fail floci by design. It exists so implementers can read the
+	// real transition order off a recording.
+	ObservedStates []string `json:"observedStates,omitempty"`
+}
+
+func metaPath(fixPath string) string {
+	return strings.TrimSuffix(fixPath, ".json") + ".meta.json"
+}
+
+func writeMeta(fixPath string, status int, errType string, observed []string) error {
+	// A single observation is just the settled state the fixture already
+	// shows — only a genuine transition is worth recording.
+	if len(observed) < 2 {
+		observed = nil
+	}
+	raw, err := json.MarshalIndent(fixtureMeta{Status: status, ErrorType: errType, ObservedStates: observed}, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(metaPath(fixPath), append(raw, '\n'), 0o644)
+}
+
+func readMeta(fixPath string) (fixtureMeta, error) {
+	var meta fixtureMeta
+	raw, err := os.ReadFile(metaPath(fixPath))
+	if err != nil {
+		return meta, err
+	}
+	err = json.Unmarshal(raw, &meta)
+	return meta, err
 }
 
 func (r *Runner) captureVars(st Step, body []byte, vars map[string]string) {

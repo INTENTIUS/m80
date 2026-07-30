@@ -3,9 +3,12 @@
   "params": {
     "baseImageArn": "arn:aws:lambda:us-east-1:aws:microvm-image:al2023-1",
     "buildRoleArn": "arn:aws:iam::123456789012:role/m80-conformance-build",
-    "codeArtifactUri": "s3://m80-conformance/code.zip"
+    "codeArtifactUri": "s3://m80-conformance-123456789012-use2/code.zip"
   },
-  "tags": ["documented-only", "subset:floci"],
+  "tags": [
+    "documented-only",
+    "subset:floci"
+  ],
   "steps": [
     {
       "name": "create",
@@ -16,85 +19,170 @@
         "name": "m80-conf-image",
         "baseImageArn": "${baseImageArn}",
         "buildRoleArn": "${buildRoleArn}",
-        "codeArtifact": { "uri": "${codeArtifactUri}" }
+        "codeArtifact": {
+          "uri": "${codeArtifactUri}"
+        }
       },
-      "expect": { "status": 201, "bodyMatch": { "name": "m80-conf-image" } },
-      "capture": { "imageName": "name", "imageVersion": "imageVersion" }
+      "expect": {
+        "status": 201,
+        "bodyMatch": {
+          "name": "m80-conf-image"
+        }
+      },
+      "capture": {
+        "imageName": "name",
+        "imageVersion": "imageVersion",
+        "imageArn": "imageArn"
+      }
     },
     {
       "name": "get-until-created",
       "operation": "GetMicrovmImage",
       "method": "GET",
-      "path": "/2025-09-09/microvm-images/${imageName}",
-      "expect": { "status": 200 },
-      "until": { "path": "state", "equals": "CREATED", "timeoutSec": 300, "intervalSec": 2 }
+      "path": "/2025-09-09/microvm-images/${imageArn}",
+      "expect": {
+        "status": 200
+      },
+      "until": {
+        "path": "state",
+        "equals": "CREATED",
+        "timeoutSec": 300,
+        "intervalSec": 2
+      }
     },
     {
       "name": "list-images",
       "operation": "ListMicrovmImages",
       "method": "GET",
       "path": "/2025-09-09/microvm-images",
-      "expect": { "status": 200 }
+      "expect": {
+        "status": 200
+      }
     },
     {
       "name": "version-until-built",
       "operation": "GetMicrovmImageVersion",
       "method": "GET",
-      "path": "/2025-09-09/microvm-images/${imageName}/versions/${imageVersion}",
-      "expect": { "status": 200 },
-      "until": { "path": "state", "equals": "SUCCESSFUL", "timeoutSec": 2700, "intervalSec": 10 }
+      "path": "/2025-09-09/microvm-images/${imageArn}/versions/${imageVersion}",
+      "expect": {
+        "status": 200
+      },
+      "until": {
+        "path": "state",
+        "equals": "SUCCESSFUL",
+        "timeoutSec": 2700,
+        "intervalSec": 10
+      }
     },
     {
       "name": "list-versions",
       "operation": "ListMicrovmImageVersions",
       "method": "GET",
-      "path": "/2025-09-09/microvm-images/${imageName}/versions",
-      "expect": { "status": 200 }
+      "path": "/2025-09-09/microvm-images/${imageArn}/versions",
+      "expect": {
+        "status": 200
+      }
     },
     {
       "name": "list-builds",
       "operation": "ListMicrovmImageBuilds",
       "method": "GET",
-      "path": "/2025-09-09/microvm-images/${imageName}/versions/${imageVersion}/builds",
-      "expect": { "status": 200 },
-      "capture": { "buildId": "items.0.buildId" }
+      "path": "/2025-09-09/microvm-images/${imageArn}/versions/${imageVersion}/builds",
+      "expect": {
+        "status": 200
+      },
+      "capture": {
+        "buildId": "items.0.buildId"
+      }
     },
     {
       "name": "get-build",
       "operation": "GetMicrovmImageBuild",
       "method": "GET",
-      "path": "/2025-09-09/microvm-images/${imageName}/versions/${imageVersion}/builds/${buildId}",
-      "expect": { "status": 200, "bodyMatch": { "buildState": "SUCCESSFUL" } }
+      "path": "/2025-09-09/microvm-images/${imageArn}/versions/${imageVersion}/builds/${buildId}",
+      "expect": {
+        "status": 200,
+        "bodyMatch": {
+          "buildState": "SUCCESSFUL"
+        }
+      }
     },
     {
       "name": "update-image",
       "operation": "UpdateMicrovmImage",
       "method": "PUT",
-      "path": "/2025-09-09/microvm-images/${imageName}",
-      "body": { "description": "updated by the m80 conformance suite" },
-      "expect": { "status": 200 }
+      "path": "/2025-09-09/microvm-images/${imageArn}",
+      "body": {
+        "baseImageArn": "${baseImageArn}",
+        "buildRoleArn": "${buildRoleArn}",
+        "codeArtifact": {
+          "uri": "${codeArtifactUri}"
+        },
+        "description": "updated by the m80 conformance suite"
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "name": "get-until-updated",
+      "operation": "GetMicrovmImage",
+      "method": "GET",
+      "path": "/2025-09-09/microvm-images/${imageArn}",
+      "expect": {
+        "status": 200
+      },
+      "until": {
+        "path": "state",
+        "equals": "UPDATED",
+        "timeoutSec": 600,
+        "intervalSec": 5
+      }
     },
     {
       "name": "update-version-status",
       "operation": "UpdateMicrovmImageVersion",
       "method": "PATCH",
-      "path": "/2025-09-09/microvm-images/${imageName}/versions/${imageVersion}",
-      "body": { "status": "INACTIVE" },
-      "expect": { "status": 200 }
+      "path": "/2025-09-09/microvm-images/${imageArn}/versions/${imageVersion}",
+      "body": {
+        "status": "INACTIVE"
+      },
+      "expect": {
+        "status": 200
+      }
     },
     {
       "name": "delete-version",
       "operation": "DeleteMicrovmImageVersion",
       "method": "DELETE",
-      "path": "/2025-09-09/microvm-images/${imageName}/versions/${imageVersion}",
-      "expect": { "status": 200 }
+      "path": "/2025-09-09/microvm-images/${imageArn}/versions/${imageVersion}",
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "name": "image-until-settled",
+      "operation": "GetMicrovmImage",
+      "method": "GET",
+      "path": "/2025-09-09/microvm-images/${imageArn}",
+      "expect": {
+        "status": 200
+      },
+      "until": {
+        "path": "state",
+        "equals": "UPDATED",
+        "timeoutSec": 600,
+        "intervalSec": 5
+      }
     },
     {
       "name": "delete-image",
       "operation": "DeleteMicrovmImage",
       "method": "DELETE",
-      "path": "/2025-09-09/microvm-images/${imageName}",
-      "expect": { "status": 200 }
+      "path": "/2025-09-09/microvm-images/${imageArn}",
+      "expect": {
+        "status": 200
+      }
     }
   ]
 }

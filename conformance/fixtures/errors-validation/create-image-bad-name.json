@@ -1,0 +1,3 @@
+{
+  "message": "1 validation error detected: Value 'bad name!' at 'name' failed to satisfy constraint: Member must satisfy regular expression pattern: [a-zA-Z0-9-_]+"
+}

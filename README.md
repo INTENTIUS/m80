@@ -23,6 +23,16 @@ CloudFormation emulation of `AWS::Lambda::MicrovmImage` lives in floci, where th
 
 Replica pools, classes, and token sidecars are KubeMicroVM constructs, not service API. m80 models the service, not the operator.
 
+## Pointing KubeMicroVM at m80
+
+The operator supports endpoint override out of the box (#17). All three of its SDK clients honor one env var on the operator deployment:
+
+```
+AWS_MICROVM_ENDPOINT=http://m80:4290
+```
+
+The `microvm` CLI's default token path goes through the operator's sub-resource and needs nothing. Only the CLI's `--direct` debug flag builds its own SDK client without an override.
+
 ## Development
 
 Go 1.25, [just](https://github.com/casey/just) as the task runner. `just` lists the recipes; `just build`, `just test`, and `just fmt-check` match CI. The plan is tracked in [epic #22](https://github.com/INTENTIUS/m80/issues/22).

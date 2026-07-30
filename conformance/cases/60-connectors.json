@@ -2,9 +2,12 @@
   "id": "connectors",
   "params": {
     "subnetId": "subnet-00000000000000001",
-    "securityGroupId": "sg-00000000000000001"
+    "securityGroupId": "sg-00000000000000001",
+    "operatorRoleArn": "arn:aws:iam::123456789012:role/m80-conformance-connector-operator"
   },
-  "tags": ["documented-only"],
+  "tags": [
+    "documented-only"
+  ],
   "steps": [
     {
       "name": "create",
@@ -15,28 +18,54 @@
         "Name": "m80-conf-connector",
         "Configuration": {
           "VpcEgressConfiguration": {
-            "SubnetIds": ["${subnetId}"],
-            "SecurityGroupIds": ["${securityGroupId}"]
+            "SubnetIds": [
+              "${subnetId}"
+            ],
+            "SecurityGroupIds": [
+              "${securityGroupId}"
+            ],
+            "AssociatedComputeResourceTypes": [
+              "MicroVm"
+            ],
+            "NetworkProtocol": "IPv4"
           }
+        },
+        "ClientToken": "m80-conformance-create-token-01",
+        "OperatorRole": "${operatorRoleArn}"
+      },
+      "expect": {
+        "status": 202,
+        "bodyMatch": {
+          "Name": "m80-conf-connector"
         }
       },
-      "expect": { "status": 202, "bodyMatch": { "Name": "m80-conf-connector" } },
-      "capture": { "connectorId": "Id" }
+      "capture": {
+        "connectorId": "Id"
+      }
     },
     {
       "name": "get-until-active",
       "operation": "GetNetworkConnector",
       "method": "GET",
       "path": "/2026-04-04/network-connectors/${connectorId}",
-      "expect": { "status": 200 },
-      "until": { "path": "State", "equals": "ACTIVE", "timeoutSec": 900, "intervalSec": 5 }
+      "expect": {
+        "status": 200
+      },
+      "until": {
+        "path": "State",
+        "equals": "ACTIVE",
+        "timeoutSec": 900,
+        "intervalSec": 5
+      }
     },
     {
       "name": "list",
       "operation": "ListNetworkConnectors",
       "method": "GET",
       "path": "/2026-04-04/network-connectors",
-      "expect": { "status": 200 }
+      "expect": {
+        "status": 200
+      }
     },
     {
       "name": "update",
@@ -46,19 +75,33 @@
       "body": {
         "Configuration": {
           "VpcEgressConfiguration": {
-            "SubnetIds": ["${subnetId}"],
-            "SecurityGroupIds": ["${securityGroupId}"]
+            "SubnetIds": [
+              "${subnetId}"
+            ],
+            "SecurityGroupIds": [
+              "${securityGroupId}"
+            ],
+            "AssociatedComputeResourceTypes": [
+              "MicroVm"
+            ],
+            "NetworkProtocol": "IPv4"
           }
-        }
+        },
+        "ClientToken": "m80-conformance-update-token-01",
+        "OperatorRole": "${operatorRoleArn}"
       },
-      "expect": { "status": 202 }
+      "expect": {
+        "status": 202
+      }
     },
     {
       "name": "delete",
       "operation": "DeleteNetworkConnector",
       "method": "DELETE",
       "path": "/2026-04-04/network-connectors/${connectorId}",
-      "expect": { "status": 202 }
+      "expect": {
+        "status": 202
+      }
     }
   ]
 }

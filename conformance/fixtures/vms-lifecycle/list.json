@@ -1,0 +1,33 @@
+{
+  "items": [
+    {
+      "imageArn": "arn:aws:lambda:REGION:ACCOUNT:microvm-image:m80-conf-vm-image",
+      "imageVersion": "1.0",
+      "microvmId": "microvm-UUID",
+      "startedAt": "TIMESTAMP",
+      "state": "RUNNING"
+    },
+    {
+      "imageArn": "arn:aws:lambda:REGION:ACCOUNT:microvm-image:m80-conf-conflict-image",
+      "imageVersion": "1.0",
+      "microvmId": "microvm-UUID",
+      "startedAt": "TIMESTAMP",
+      "state": "TERMINATED"
+    },
+    {
+      "imageArn": "arn:aws:lambda:REGION:ACCOUNT:microvm-image:m80-conf-conflict-image",
+      "imageVersion": "1.0",
+      "microvmId": "microvm-UUID",
+      "startedAt": "TIMESTAMP",
+      "state": "TERMINATED"
+    },
+    {
+      "imageArn": "arn:aws:lambda:REGION:ACCOUNT:microvm-image:m80-conf-token-image",
+      "imageVersion": "1.0",
+      "microvmId": "microvm-UUID",
+      "startedAt": "TIMESTAMP",
+      "state": "TERMINATED"
+    }
+  ],
+  "nextToken": null
+}
