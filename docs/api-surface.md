@@ -73,10 +73,16 @@ Facts the models could not state, learned during the fixture-recording runs.
 | A suspended VM still issues auth tokens | `CreateMicrovmAuthToken` against a `SUSPENDED` VM returns `200` with a full `X-aws-proxy-auth` token, not a conflict. Tokens are therefore obtainable before a resume, which is the order a client wanting to wake a VM by calling it would need |
 | `ResourceNotFoundException` carries `resourceId` and `resourceType` | Both `null` in practice on a missing VM. Absent from the earlier recording only because that probe hit a gateway `502` on a malformed id |
 | Resume skips `PENDING` | See [lifecycle.md](lifecycle.md). The recorded transition sequences now live there |
+| `ServiceQuotaExceededException` answers **HTTP 402** | Payment Required, not the 429 or 400 anyone would guess. The model names the error and says nothing about its status, so this is only knowable by provoking it |
+| The binding limit is memory, not VM count | `402 "The base maximum allocated memory limit has been reached for this account."` Six concurrent `RunMicrovm` on a fresh account yielded two running VMs and four rejections. At the 2048 MiB default tier that puts the account's base ceiling near 4096 MiB of allocated memory, not a VM count |
+| Quota errors carry empty detail | `quotaCode`, `serviceCode`, `resourceId`, and `resourceType` are all present and all `null`. A client cannot branch on which quota was hit; only the message says |
+| Concurrency throttling is masked | The burst never produced `ThrottlingException` or any `ThrottleReason`, including `ConcurrentSnapshotCreateLimitExceeded`. The memory ceiling fires first and hides it. KubeMicroVM's QuotaGuard will meet 402 long before it meets a throttle on a default account |
 
 ## Error and throttle taxonomy
 
-Also in the model, no recording run needed for shapes. `AccessDeniedException`, `ConflictException`, `ResourceConflictException`, `ResourceNotFoundException`, `InvalidParameterValueException`, `ServiceQuotaExceededException`, `ThrottlingException`, `TooManyRequestsException`, `InternalServerException`, `ServiceException`. `ThrottleReason` enumerates six reasons including `ConcurrentSnapshotCreateLimitExceeded`, which is the one QuotaGuard testing cares about. What the model cannot say is which operation returns which error when, and that mapping stays a conformance-recording target.
+Also in the model, no recording run needed for shapes. `AccessDeniedException`, `ConflictException`, `ResourceConflictException`, `ResourceNotFoundException`, `InvalidParameterValueException`, `ServiceQuotaExceededException`, `ThrottlingException`, `TooManyRequestsException`, `InternalServerException`, `ServiceException`. `ThrottleReason` enumerates six reasons including `ConcurrentSnapshotCreateLimitExceeded`, which is the one QuotaGuard testing cares about.
+
+What the model cannot say is which operation returns which error when, and with what status. Two of those are now recorded. A terminal-state mutation is `400 ValidationException`, not either modeled conflict type. Exhausting capacity is `402 ServiceQuotaExceededException` against an account memory ceiling, reached at six concurrent `RunMicrovm` calls — and reached *instead of* any throttle, so the six `ThrottleReason` values remain unobserved and are implemented from the model alone. Provoking them would need an account whose memory quota is raised well above its concurrency limit, which is a support-ticket exercise rather than a recording one.
 
 ## Protocol notes
 

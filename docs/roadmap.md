@@ -14,7 +14,9 @@ Run 2026-07-29. All ten scenarios are fixture-backed and 19 recorded corrections
 
 A second, smaller session on 2026-07-30 retired most of what the first left open. Transition order is recorded — resume goes straight back to `RUNNING` without passing through `PENDING`. A suspended VM does still issue auth tokens. `errors-not-found/get-vm-missing` re-recorded clean as `404 ResourceNotFoundException` once the case stopped probing a malformed id; the `502` it captured before survives as `.rejected-502`.
 
-Two targets remain. The endpoint probe, running or suspended, needs the runner to address a VM's own hostname rather than the control-plane endpoint, and is unexpressible until then. The throttle probe is authored as `conformance/cmd/throttleprobe` — a concurrent `RunMicrovm` burst, scoped small and with guaranteed teardown — and has not yet been run.
+The throttle probe ran too, as `conformance/cmd/throttleprobe`: six concurrent `RunMicrovm` calls, two admitted and four rejected with `402 ServiceQuotaExceededException` against an account memory ceiling. It answered a different question than the one asked — the memory quota fires before any concurrency throttle, so the six `ThrottleReason` values stay unobserved and m80 implements them from the model.
+
+One target remains. The endpoint probe, running or suspended, needs the runner to address a VM's own hostname rather than the control-plane endpoint, and is unexpressible until then.
 
 ## M3 — m80 itself
 
