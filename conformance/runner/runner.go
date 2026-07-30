@@ -117,7 +117,12 @@ type Config struct {
 	// the same numbers mean a state the target does not model burns its full
 	// timeout before the step fails. Zero keeps the case values, which is
 	// what a recording run needs.
-	MaxPollSec  float64
+	MaxPollSec float64
+	// Tier and Tiers select how strictly fixtures are compared. Zero values
+	// mean full equality, which is what a recording run and m80's own runs
+	// want.
+	Tier        Tier
+	Tiers       *Tiers
 	Params      map[string]string
 	Credentials aws.Credentials
 	HTTPClient  *http.Client
@@ -406,7 +411,8 @@ func (r *Runner) check(s Scenario, st Step, status int, body []byte, errType str
 				return Fail, fmt.Sprintf("error type %q, recorded %q", errType, meta.ErrorType), true
 			}
 		}
-		want, got := Normalize(raw), Normalize(body)
+		want := r.cfg.Tiers.ApplyTier(Normalize(raw), r.cfg.Tier)
+		got := r.cfg.Tiers.ApplyTier(Normalize(body), r.cfg.Tier)
 		if !jsonEqual(want, got) {
 			return Fail, "response diverges from fixture " + fixPath, true
 		}

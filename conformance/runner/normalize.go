@@ -87,9 +87,15 @@ func normalizeNode(key string, node any) any {
 		s = reARN.ReplaceAllStringFunc(s, arnRedact)
 		s = reShortID.ReplaceAllString(s, "${1}-ID")
 		s = reRegion.ReplaceAllString(s, "REGION")
+		// UUIDs before accounts: a uuid's final segment is twelve hex
+		// characters, and when they happen to be all decimal the account rule
+		// eats it first, leaving a mangled microvm-cf50c1ff-…-ACCOUNT that no
+		// longer matches the uuid pattern. Roughly one generated id in a
+		// couple of million, which is exactly the kind of flake nobody would
+		// ever reproduce on purpose.
+		s = reUUID.ReplaceAllString(s, "UUID")
 		s = reAccount.ReplaceAllString(s, "ACCOUNT")
 		s = reTimestamp.ReplaceAllString(s, "TIMESTAMP")
-		s = reUUID.ReplaceAllString(s, "UUID")
 		return s
 	case float64:
 		// Epoch-second timestamps hide under many key names (createdAt,

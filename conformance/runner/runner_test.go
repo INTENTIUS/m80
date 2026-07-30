@@ -452,6 +452,10 @@ func TestNormalizeShortIDsAndRegion(t *testing.T) {
 		// Recorded in one hour, replayed in another: without this the step
 		// passes or fails by wall clock.
 		{"version state time bucket", `{"v":"SUCCESSFUL#26073006"}`, `{"v":"SUCCESSFUL#26073018"}`},
+		// A uuid whose final twelve characters are all decimal must still
+		// redact as a uuid, not get its tail eaten by the account rule.
+		{"all-digit uuid tail", `{"v":"microvm-cf50c1ff-04ac-4668-afd9-1a2b3c4d5e6f"}`,
+			`{"v":"microvm-cf50c1ff-04ac-4668-afd9-123456789012"}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got, want := string(Normalize([]byte(tc.emulated))), string(Normalize([]byte(tc.live))); got != want {
