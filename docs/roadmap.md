@@ -6,11 +6,11 @@ This repo. Docs only, local only. Exits when the operation inventory is extracte
 
 ## M1 — Model extraction and suite skeleton
 
-Pull the operation inventory and shapes from KubeMicroVM's vendored `service-2.json`, cross-check against aws-sdk-go-v2. Write the conformance suite skeleton with documented-only expectations. No emulator code.
+Partially done 2026-07-29. The operation inventory (24 + 5 operations across two services), state enums, error shapes, and throttle reasons are extracted from KubeMicroVM's vendored models into [api-surface.md](api-surface.md) and [lifecycle.md](lifecycle.md). Remaining: cross-check against aws-sdk-go-v2's model for divergence, then write the conformance suite skeleton. No emulator code.
 
 ## M2 — Fixture recording
 
-One budgeted run against the real service. Convert expectations to fixtures, record error taxonomy, real state strings, throttle envelope, suspended-endpoint behavior. This run retires every "working label" in [lifecycle.md](lifecycle.md).
+One budgeted run against the real service, now much smaller than first scoped since the model gave up shapes, enums, and error taxonomy for free. What only the live service can answer: transition order (does resume pass through `PENDING`), which operation returns which error when, suspended-endpoint and token behavior, the throttle envelope in practice. This run retires every remaining recording target in [lifecycle.md](lifecycle.md).
 
 ## M3 — m80 itself
 
@@ -32,4 +32,4 @@ Whether the repo goes public at M3 or M4. The operator-proof number is the bette
 
 Token and endpoint behavior for suspended VMs. Docs are silent, M2 records it.
 
-Whether the vendored service model in KubeMicroVM is complete and current, or whether the SDK's own model diverges. M1 answers this.
+Whether the vendored service model in KubeMicroVM is complete and current, or whether the SDK's own model diverges. Half answered, the vendored models parse clean and carry full shapes. The aws-sdk-go-v2 cross-check remains.
