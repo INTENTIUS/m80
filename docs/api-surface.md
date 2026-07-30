@@ -10,6 +10,8 @@ The MicroVM API ships as an SDK service model. Three copies are available and mu
 | aws-sdk-go-v2 generated client | The wire-parity reference, the role fly-go plays for mudflaps |
 | AWS API reference docs | Human-readable semantics, error taxonomy |
 
+Cross-checked 2026-07-29 (#2). aws-sdk-go-v2 ships both services (`service/lambdamicrovms`, `service/lambdacore`; Smithy models `lambda-microvms.json` and `lambda-core.json` under `codegen/sdk-codegen/aws-models/`). Operation lists and every enum match the vendored copies exactly. The SDK's Smithy models are canonical for the wire-parity contract from here, since AWS publishes them continuously. The sigv4 signing name is `lambda` for both services (sdkIds `Lambda Microvms`, `Lambda Core`), which is what the conformance harness signs with.
+
 ## Verified operation inventory
 
 Extracted 2026-07-29 from the vendored models. Two services, not one. `Lambda Microvms` (`apiVersion 2025-09-09`, rest-json) carries images, VMs, and tokens. `Lambda Core` (`apiVersion 2026-04-30`, rest-json, URI prefix `/2026-04-04/`) carries network connectors. Tagging rides the classic Lambda tags API at `/2017-03-31/tags/`. One emulator endpoint must route all three URI families.
