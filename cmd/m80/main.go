@@ -20,6 +20,7 @@ import (
 	"github.com/intentius/m80"
 	"github.com/intentius/m80/internal/api"
 	"github.com/intentius/m80/internal/clock"
+	"github.com/intentius/m80/internal/managedimages"
 	"github.com/intentius/m80/internal/store"
 )
 
@@ -42,6 +43,8 @@ func main() {
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
 	srv := api.NewServer(clock.Real{}, store.New(), m80.Version)
+	managedimages.Register(srv)
+
 	impl := len(srv.Implemented())
 	log.Info("m80 starting",
 		"version", m80.Version,

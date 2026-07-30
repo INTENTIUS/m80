@@ -118,8 +118,26 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func writeJSON(w http.ResponseWriter, status int, body any) {
+// WriteJSON writes a success response. Resource packages use it so the
+// content type and encoding stay in one place.
+func WriteJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
+}
+
+// WriteError writes an error response with the modeled error type in the
+// header the SDKs read.
+//
+// The type rides X-Amzn-Errortype and not the body: the live service does not
+// put __type in these bodies, the recorded fixtures confirm it, and an
+// emulator that adds one diverges on every error case. Bodies are per-error
+// and passed in by the caller, since their members differ.
+func WriteError(w http.ResponseWriter, status int, errorType string, body any) {
+	w.Header().Set("X-Amzn-Errortype", errorType)
+	WriteJSON(w, status, body)
+}
+
+func writeJSON(w http.ResponseWriter, status int, body any) {
+	WriteJSON(w, status, body)
 }
