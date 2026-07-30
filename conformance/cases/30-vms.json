@@ -83,7 +83,19 @@
       "method": "GET",
       "path": "/2025-09-09/microvms",
       "expect": {
-        "status": 200
+        "status": 200,
+        "itemShape": {
+          "path": "items",
+          "required": [
+            "imageArn",
+            "imageVersion",
+            "microvmId",
+            "startedAt",
+            "state"
+          ],
+          "exact": true,
+          "minItems": 1
+        }
       }
     },
     {

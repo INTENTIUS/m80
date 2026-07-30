@@ -30,6 +30,26 @@ Outcomes: `pass`, `fail`, `unimplemented` (HTTP 501, valid for a target under co
 
 Scenario `params` defaults must reproduce the *normalized* shape of whatever was recorded, since fixture comparison covers echoed request values. `codeArtifactUri` defaults to a bucket named like the recording one (`m80-conformance-<account>-use2`) for exactly this reason: the account digits flatten to `ACCOUNT` on both sides, so an emulator echoing the default matches a live recording made against the real bucket. A default that does not normalize to the recorded string fails every target, correct ones included.
 
+## Checking lists that accumulate
+
+Some collections grow with an account's whole history — terminated VMs stay in `ListMicrovms` apparently forever — so a recorded list is a photograph of one account at one moment and can never equal a fresh target's. Dropping those steps to a bare status check would throw away the part that matters, which is whether the target returns the members a client reads.
+
+`expect.itemShape` checks membership without checking values:
+
+```json
+"expect": {
+  "status": 200,
+  "itemShape": {
+    "path": "items",
+    "required": ["imageArn", "imageVersion", "microvmId", "startedAt", "state"],
+    "exact": true,
+    "minItems": 1
+  }
+}
+```
+
+`exact` rejects members outside `required` as well as missing ones, because sparse bodies and over-full ones are both real divergences — an emulator returning half the members of a summary is the commonest of all. `minItems` guards against a target that returns an empty list and satisfies every member check vacuously.
+
 ## Rejected fixtures
 
 A fixture renamed to `<step>.json.rejected-<reason>` is a recording the suite refuses to treat as truth, because it captured the recording *account* rather than the service. They are kept rather than deleted: each one is evidence, and each cost a live session.

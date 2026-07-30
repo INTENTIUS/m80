@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -361,6 +362,59 @@ func TestResolveVarsTerminatesOnCycle(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("resolveVars did not terminate on a cycle")
+	}
+}
+
+// Lists that accumulate across an account's history cannot be compared by
+// value, but the members a client reads still must be checked.
+func TestMatchItemShape(t *testing.T) {
+	const body = `{"items":[
+		{"imageArn":"a","imageVersion":"1.0","microvmId":"microvm-1","startedAt":1,"state":"RUNNING"},
+		{"imageArn":"b","imageVersion":"1.0","microvmId":"microvm-2","startedAt":2,"state":"TERMINATED"}
+	],"nextToken":null}`
+	full := ItemShape{Path: "items", Required: []string{
+		"imageArn", "imageVersion", "microvmId", "startedAt", "state"}, Exact: true, MinItems: 1}
+
+	if detail, ok := matchItemShape(full, []byte(body)); !ok {
+		t.Errorf("well-formed list rejected: %s", detail)
+	}
+
+	// A sparse item — the commonest emulator divergence there is.
+	sparse := `{"items":[{"microvmId":"microvm-1","state":"RUNNING"}]}`
+	detail, ok := matchItemShape(full, []byte(sparse))
+	if ok {
+		t.Error("sparse item accepted")
+	} else if !strings.Contains(detail, "missing") {
+		t.Errorf("detail %q", detail)
+	}
+
+	// An over-full item is a divergence too, when Exact is set.
+	extra := `{"items":[{"imageArn":"a","imageVersion":"1.0","microvmId":"m","startedAt":1,"state":"RUNNING","endpoint":"x"}]}`
+	if detail, ok := matchItemShape(full, []byte(extra)); ok {
+		t.Error("over-full item accepted under Exact")
+	} else if !strings.Contains(detail, "endpoint") {
+		t.Errorf("detail %q", detail)
+	}
+	loose := full
+	loose.Exact = false
+	if detail, ok := matchItemShape(loose, []byte(extra)); !ok {
+		t.Errorf("over-full item rejected without Exact: %s", detail)
+	}
+
+	// An empty list would satisfy every member check vacuously.
+	if _, ok := matchItemShape(full, []byte(`{"items":[]}`)); ok {
+		t.Error("empty list accepted despite minItems")
+	}
+	empty := full
+	empty.MinItems = 0
+	if _, ok := matchItemShape(empty, []byte(`{"items":[]}`)); !ok {
+		t.Error("empty list rejected with minItems 0")
+	}
+
+	for _, bad := range []string{`{"other":[]}`, `{"items":{}}`, `not json`} {
+		if _, ok := matchItemShape(full, []byte(bad)); ok {
+			t.Errorf("accepted malformed body %s", bad)
+		}
 	}
 }
 

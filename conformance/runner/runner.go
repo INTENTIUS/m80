@@ -56,6 +56,30 @@ type Expect struct {
 	ErrorType      string          `json:"errorType,omitempty"`
 	ErrorTypeOneOf []string        `json:"errorTypeOneOf,omitempty"`
 	BodyMatch      json.RawMessage `json:"bodyMatch,omitempty"`
+	ItemShape      *ItemShape      `json:"itemShape,omitempty"`
+}
+
+// ItemShape checks the members of every element of a list, without checking
+// their values.
+//
+// Some collections accumulate across an account's whole history — terminated
+// VMs are listed apparently forever — so a recorded list response is a
+// photograph of one account at one moment and can never equal a fresh
+// target's. Dropping those steps to a bare status check would lose the part
+// that actually matters, which is whether the target returns the members a
+// client reads. This checks exactly that part.
+type ItemShape struct {
+	// Path is the dot-path to the array, e.g. "items".
+	Path string `json:"path"`
+	// Members every element must carry.
+	Required []string `json:"required"`
+	// Exact rejects members outside Required as well as missing ones. Sparse
+	// bodies and over-full ones are both real divergences, and an emulator
+	// returning half the members of a summary is the commonest of all.
+	Exact bool `json:"exact,omitempty"`
+	// MinItems guards against a target that returns an empty list and
+	// vacuously satisfies every member check.
+	MinItems int `json:"minItems,omitempty"`
 }
 
 type Outcome string
@@ -348,6 +372,11 @@ func (r *Runner) check(s Scenario, st Step, status int, body []byte, errType str
 			return Fail, detail, false
 		}
 	}
+	if st.Expect.ItemShape != nil {
+		if detail, ok := matchItemShape(*st.Expect.ItemShape, body); !ok {
+			return Fail, detail, false
+		}
+	}
 
 	// A fixture, when present, is the strongest check: full normalized equality,
 	// plus the recorded status and error type when a meta sidecar exists.
@@ -413,6 +442,69 @@ func (r *Runner) captureVars(st Step, body []byte, vars map[string]string) {
 			vars[name] = v
 		}
 	}
+}
+
+// matchItemShape checks that every element of a list carries the members a
+// client reads, without checking their values.
+func matchItemShape(shape ItemShape, body []byte) (string, bool) {
+	var doc any
+	if err := json.Unmarshal(body, &doc); err != nil {
+		return "item shape: response is not JSON", false
+	}
+	node := doc
+	if shape.Path != "" {
+		for _, seg := range strings.Split(shape.Path, ".") {
+			m, ok := node.(map[string]any)
+			if !ok {
+				return "item shape: " + shape.Path + " is not reachable", false
+			}
+			node, ok = m[seg]
+			if !ok {
+				return "item shape: response has no " + shape.Path, false
+			}
+		}
+	}
+	items, ok := node.([]any)
+	if !ok {
+		return "item shape: " + shape.Path + " is not a list", false
+	}
+	if len(items) < shape.MinItems {
+		return fmt.Sprintf("item shape: %d items, want at least %d", len(items), shape.MinItems), false
+	}
+
+	want := map[string]bool{}
+	for _, k := range shape.Required {
+		want[k] = true
+	}
+	for i, raw := range items {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			return fmt.Sprintf("item shape: item %d is not an object", i), false
+		}
+		var missing []string
+		for k := range want {
+			if _, present := item[k]; !present {
+				missing = append(missing, k)
+			}
+		}
+		sort.Strings(missing)
+		if len(missing) > 0 {
+			return fmt.Sprintf("item shape: item %d is missing %v", i, missing), false
+		}
+		if shape.Exact {
+			var extra []string
+			for k := range item {
+				if !want[k] {
+					extra = append(extra, k)
+				}
+			}
+			sort.Strings(extra)
+			if len(extra) > 0 {
+				return fmt.Sprintf("item shape: item %d has unexpected %v", i, extra), false
+			}
+		}
+	}
+	return "", true
 }
 
 // resolveVars lets one param reference another, so a case can build an ARN
