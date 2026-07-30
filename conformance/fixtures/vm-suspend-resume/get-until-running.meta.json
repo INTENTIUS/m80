@@ -1,3 +1,7 @@
 {
-  "status": 200
+  "status": 200,
+  "observedStates": [
+    "PENDING",
+    "RUNNING"
+  ]
 }

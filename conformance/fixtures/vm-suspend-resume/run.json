@@ -2,7 +2,7 @@
   "egressNetworkConnectors": [
     "arn:aws:lambda:REGION:aws:network-connector:aws-network-connector:INTERNET_EGRESS"
   ],
-  "endpoint": "UUID.lambda-microvm.us-east-2.on.aws",
+  "endpoint": "UUID.lambda-microvm.REGION.on.aws",
   "executionRoleArn": null,
   "idlePolicy": {
     "autoResumeEnabled": false,

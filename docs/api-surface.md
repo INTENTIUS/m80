@@ -66,6 +66,14 @@ Facts the models could not state, learned during the fixture-recording runs.
 | Version delete is asynchronous too | An image delete racing a draining version delete gets `400 "Cannot delete MicroVM image in its current state"`; once versions drain, the same delete succeeds |
 | Defaults on running VMs | Every VM carries managed default connectors (`INTERNET_EGRESS` egress, `HTTP_INGRESS` ingress — the latter another unmodeled connector type), `maximumDurationInSeconds: 28800`, endpoint `<uuid>.lambda-microvm.<region>.on.aws`, and `stateReason: "Success."` once terminated |
 
+## Recorded corrections (2026-07-30, second session)
+
+| Fact | Detail |
+|------|--------|
+| A suspended VM still issues auth tokens | `CreateMicrovmAuthToken` against a `SUSPENDED` VM returns `200` with a full `X-aws-proxy-auth` token, not a conflict. Tokens are therefore obtainable before a resume, which is the order a client wanting to wake a VM by calling it would need |
+| `ResourceNotFoundException` carries `resourceId` and `resourceType` | Both `null` in practice on a missing VM. Absent from the earlier recording only because that probe hit a gateway `502` on a malformed id |
+| Resume skips `PENDING` | See [lifecycle.md](lifecycle.md). The recorded transition sequences now live there |
+
 ## Error and throttle taxonomy
 
 Also in the model, no recording run needed for shapes. `AccessDeniedException`, `ConflictException`, `ResourceConflictException`, `ResourceNotFoundException`, `InvalidParameterValueException`, `ServiceQuotaExceededException`, `ThrottlingException`, `TooManyRequestsException`, `InternalServerException`, `ServiceException`. `ThrottleReason` enumerates six reasons including `ConcurrentSnapshotCreateLimitExceeded`, which is the one QuotaGuard testing cares about. What the model cannot say is which operation returns which error when, and that mapping stays a conformance-recording target.

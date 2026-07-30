@@ -31,7 +31,21 @@ PENDING ──▶ RUNNING ──▶ SUSPENDING ──▶ SUSPENDED
 RUNNING | SUSPENDED ──▶ TERMINATING ──▶ TERMINATED
 ```
 
-There is no `RESUMING` state in the enum. Whether `ResumeMicrovm` moves the VM through `PENDING` again or straight to `RUNNING` is still a recording target after the 2026-07-29 run, and it matters because KubeMicroVM's reconcilers poll these strings. The run did not answer it for a structural reason worth fixing before the next one: a step's `until` block polls to a settled state and only the matching response is kept, so every intermediate state the poll passes through is discarded. Transition *order* is invisible to a harness that records only endpoints. Answering it needs the runner to retain the distinct states an `until` observes.
+There is no `RESUMING` state in the enum, and **`ResumeMicrovm` does not pass back through `PENDING`**. Recorded 2026-07-30: a five-second poll across a full suspend and resume cycle observed `SUSPENDED` then `RUNNING` with nothing between. The same poll, at the same resolution, did catch `PENDING` on the initial launch, so this is a real difference in the two paths rather than a sampling artifact. KubeMicroVM's reconcilers poll these strings, so a resumed VM going straight to `RUNNING` is the behavior m80 implements.
+
+Observed sequences, all at poll resolution and therefore a lower bound — a state briefer than the interval would not appear:
+
+| Transition | Observed |
+|------------|----------|
+| Launch | `PENDING` → `RUNNING` |
+| Suspend | `RUNNING` → `SUSPENDED` |
+| Resume | `SUSPENDED` → `RUNNING` |
+| Terminate | `RUNNING` → `TERMINATED` |
+| Build | `IN_PROGRESS` → `SUCCESSFUL` |
+
+`SUSPENDING` and `TERMINATING` are in the enum but were never sampled, as were `PENDING` on a build. They are presumably real and brief. m80 models them on the injected clock, where a test can hold them open as long as it needs; treating them as unreachable because one recording missed them would be the wrong lesson.
+
+Recording these at all needed a harness change. A step's `until` block polls to a settled state and originally kept only the matching response, discarding every intermediate. The runner now retains the distinct states a poll walks through and writes them to the fixture's `.meta.json` as `observedStates` — recorded truth, never asserted, since an instant-settle emulator walks a shorter path and is still conformant on every observable state.
 
 | Behavior | Rule |
 |----------|------|

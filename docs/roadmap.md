@@ -12,7 +12,9 @@ Done 2026-07-29. The operation inventory (24 + 5 operations across two services)
 
 Run 2026-07-29. All ten scenarios are fixture-backed and 19 recorded corrections landed in [api-surface.md](api-surface.md), including four connector members the models mark optional and the service enforces, two connector types absent from the model's enum, and the asynchronous delete and update windows.
 
-Three targets outlived the run and need a second, smaller session. Transition order was not captured because the harness kept only the settled response of each poll — fixed since, the runner now records the states an `until` walks through, but the answer needs a live run to collect. Token and endpoint behavior for a suspended VM had no steps at all; the token half is now a case (`auth-token-while-suspended`), the endpoint half needs the runner to address a VM's own hostname rather than the control-plane endpoint. The throttle probe was never authored. One fixture, `errors-not-found/get-vm-missing`, recorded a gateway `502` against a malformed VM id and is set aside as `.rejected-502` pending a re-record.
+A second, smaller session on 2026-07-30 retired most of what the first left open. Transition order is recorded — resume goes straight back to `RUNNING` without passing through `PENDING`. A suspended VM does still issue auth tokens. `errors-not-found/get-vm-missing` re-recorded clean as `404 ResourceNotFoundException` once the case stopped probing a malformed id; the `502` it captured before survives as `.rejected-502`.
+
+Two targets remain. The endpoint probe, running or suspended, needs the runner to address a VM's own hostname rather than the control-plane endpoint, and is unexpressible until then. The throttle probe is authored as `conformance/cmd/throttleprobe` — a concurrent `RunMicrovm` burst, scoped small and with guaranteed teardown — and has not yet been run.
 
 ## M3 — m80 itself
 
@@ -30,8 +32,8 @@ chant integration (`chant emulator up` capability, the kit's local tutorials), b
 
 The name is settled. m80, checked 2026-07-29. `intentius/m80` is free on GitHub and the existing m80-named repos are an iOS label library and CP/M-80 retrocomputing projects, no collision in this space. Prior working title was squib, dropped for colliding with a 953-star Ruby project.
 
-Token and endpoint behavior for suspended VMs. Docs are silent and the first recording run did not answer it, having no step that touched a suspended VM with a token operation. The token case exists now; the endpoint probe is still unexpressible in the harness.
+Endpoint behavior for running and suspended VMs. The token half is recorded; the endpoint half needs the runner to address a VM's own hostname, which it cannot do.
 
-What the throttle probe should actually do. `ThrottleReason` enumerates six reasons and `ConcurrentSnapshotCreateLimitExceeded` is the one QuotaGuard testing cares about, but which operation to burst, at what rate, and how much account-level throttling risk is acceptable are maintainer calls, not defaults to guess.
+Whether `SUSPENDING` and `TERMINATING` are observable at all, or too brief to sample. m80 models them regardless, since a client polling faster than five seconds may well see them.
 
-Resolved: the repo went public 2026-07-30, ahead of the M3-or-M4 question. The vendored models parse clean, carry full shapes, and agree with aws-sdk-go-v2; `modelwatch` keeps that true.
+Resolved: the repo went public 2026-07-30, ahead of the M3-or-M4 question. The vendored models parse clean, carry full shapes, and agree with aws-sdk-go-v2; `modelwatch` keeps that true. Token behavior for suspended VMs is recorded. The throttle probe's shape is settled — a small concurrent `RunMicrovm` burst.

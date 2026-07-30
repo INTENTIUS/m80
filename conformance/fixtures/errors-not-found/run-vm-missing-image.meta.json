@@ -1,4 +1,4 @@
 {
-  "status": 404,
-  "errorType": "ResourceNotFoundException"
+  "status": 403,
+  "errorType": "AccessDeniedException"
 }

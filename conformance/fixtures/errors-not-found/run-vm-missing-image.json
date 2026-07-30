@@ -1,5 +1,3 @@
 {
-  "message": "No active version found for MicroVM image arn:aws:lambda:REGION:ACCOUNT:microvm-image:m80-does-not-exist",
-  "resourceId": null,
-  "resourceType": null
+  "Message": "User: arn:aws:iam::ACCOUNT:user/alex is not authorized to perform: lambda:RunMicrovm on resource: arn:aws:lambda:REGION:ACCOUNT:microvm-image:m80-does-not-exist because no resource-based policy allows the lambda:RunMicrovm action"
 }
