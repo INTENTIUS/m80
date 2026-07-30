@@ -23,6 +23,10 @@ CloudFormation emulation of `AWS::Lambda::MicrovmImage` lives in floci, where th
 
 Replica pools, classes, and token sidecars are KubeMicroVM constructs, not service API. m80 models the service, not the operator.
 
+## Development
+
+Go 1.25, [just](https://github.com/casey/just) as the task runner. `just` lists the recipes; `just build`, `just test`, and `just fmt-check` match CI. The plan is tracked in [epic #22](https://github.com/INTENTIUS/m80/issues/22).
+
 ## Design documents
 
 | Doc | Contents |
