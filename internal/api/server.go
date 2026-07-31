@@ -16,6 +16,12 @@ type Server struct {
 	Clock clock.Clock
 	Store *store.Store
 
+	// Intercept is consulted before the route table and reports whether it
+	// served the request. The per-VM endpoint (#12) uses it: a VM's endpoint
+	// is a different host answered by the same process, and ServeMux host
+	// patterns cannot carry a wildcard, so it cannot be expressed as a route.
+	Intercept func(http.ResponseWriter, *http.Request) bool
+
 	mu       sync.RWMutex
 	handlers map[string]Handler // keyed by operation name
 	mux      *http.ServeMux
@@ -87,6 +93,9 @@ func (s *Server) dispatch(operation string) http.HandlerFunc {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if s.Intercept != nil && s.Intercept(w, r) {
+		return
+	}
 	s.mux.ServeHTTP(w, r)
 }
 

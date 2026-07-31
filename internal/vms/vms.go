@@ -14,6 +14,8 @@
 package vms
 
 import (
+	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -230,6 +232,75 @@ func (s *Service) Touch(vm *VM) uint64 {
 	vm.LastActivity = s.clock.Now()
 	vm.Marker++
 	return vm.Marker
+}
+
+// LookupEndpoint resolves the VM whose per-VM endpoint hostname this is, for
+// the endpoint stub (#12). The region is read out of the hostname —
+// <uuid>.lambda-microvm.<region>.on.aws — and only that region is searched,
+// so two regions minting the same endpoint uuid could not cross over.
+//
+// The scan is linear in one region's VMs. A reverse index would be faster and
+// would be a second thing to keep in step with every create and delete, which
+// for an emulator is the worse trade.
+func (s *Service) LookupEndpoint(host string) (region, id string, ok bool) {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	parts := strings.Split(host, ".")
+	// <uuid> . lambda-microvm . <region> . on . aws
+	if len(parts) != 5 || parts[1] != "lambda-microvm" || parts[3] != "on" || parts[4] != "aws" {
+		return "", "", false
+	}
+	region = parts[2]
+	for _, vm := range s.List(region) {
+		if strings.EqualFold(vm.Endpoint, host) {
+			return region, vm.ID, true
+		}
+	}
+	return "", "", false
+}
+
+// LookupID finds which region holds a VM, for the endpoint's path-prefix form
+// where there is no signed request to read a region out of.
+func (s *Service) LookupID(id string) (region string, ok bool) {
+	for _, name := range s.store.Regions() {
+		if _, found := s.collection(name).Get(id); found {
+			return name, true
+		}
+	}
+	return "", false
+}
+
+// Status reports what the endpoint stub needs to decide how to answer: the
+// VM's state, and whether its idle policy lets endpoint traffic wake it.
+func (s *Service) Status(region, id string) (state string, autoResume bool, ok bool) {
+	vm, found := s.Get(region, id)
+	if !found {
+		return "", false, false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return vm.State, vm.IdlePolicy != nil && vm.IdlePolicy.AutoResumeEnabled, true
+}
+
+// RecordTraffic is Touch by id: the endpoint stub has resolved a VM from a
+// hostname, not from a signed control-plane request.
+func (s *Service) RecordTraffic(region, id string) (marker uint64, ok bool) {
+	vm, found := s.Get(region, id)
+	if !found {
+		return 0, false
+	}
+	return s.Touch(vm), true
+}
+
+// Wake is Resume by id, for the auto-resume path: a SUSPENDED VM whose idle
+// policy has autoResumeEnabled comes back when its endpoint is called.
+func (s *Service) Wake(region, id string) {
+	vm, found := s.Get(region, id)
+	if !found {
+		return
+	}
+	s.Resume(vm)
 }
 
 // Terminate walks the VM to TERMINATED through TERMINATING. The recording

@@ -90,9 +90,33 @@ rest-json with versioned URI prefixes, riding the Lambda endpoint family. m80 li
 
 Errors matter as much as happy paths. The conformance suite records the real service's error codes for the standard set. Not found, conflict on double-terminate, validation failures for each enforced limit, throttling shape for the quota tests KubeMicroVM's QuotaGuard exercises. Emulating the throttling envelope is what lets their rate-limiter logic be tested offline.
 
+## Tokens
+
+`CreateMicrovmAuthToken` returns `authToken`, a `TokenParts` map. The model describes it as a mapping of auth token keys to values because "some token schemes require returning multiple auth headers", so the key is a header name; the recorded scheme returns exactly one, `X-aws-proxy-auth`. The value is a JWE in compact serialization — five parts, empty encrypted-key segment because the header says `alg: dir`, header carrying a `kid` UUID and `enc: A256GCM`. m80 mints that shape from random bytes and validates by table lookup rather than by decrypting; nothing should be read out of one past the header.
+
+`expirationInMinutes` and `allowedPorts` are both required, and expiry is documented at a maximum of 60 minutes. `allowedPorts` has a minimum length of one and each member is a union — exactly one of `port`, `range` or `allPorts`. m80 enforces the port grant on the endpoint, because a token scoped to one port that opened another would pass requests the real service rejects.
+
+`CreateMicrovmShellAuthToken` can only ever fail. The recorded response is `400 ValidationException` with "Shell access requires SHELL_INGRESS network connector to be configured on the MicroVM.", and `SHELL_INGRESS` is absent from the service model entirely — not merely unrecorded but unrepresentable, so no request exists that would make it succeed. m80 implements the rejection rather than answering 501, since the error is the operation's one observable behavior and a consumer that handles it is correctly exercised.
+
 ## The VM endpoint
 
-Each running VM gets an endpoint URL. m80 answers it from the same process, routed by host header or path prefix, returning a configurable stub body and honoring `X-aws-proxy-auth` against issued tokens. Suspended VMs answer the way the real service answers, which the conformance suite must record rather than guess.
+Each running VM gets an endpoint URL. m80 answers it from the same process, routed by host header or by the `/_m80/vm/{microvmId}/` path prefix for callers that cannot forge a `Host`, returning a configurable stub body (`-vm-stub-body`) and honoring `X-aws-proxy-auth` against issued tokens. The default body and an `X-M80-State-Marker` header both carry the state marker, a counter that survives suspend and resume so a client can prove the VM kept its state rather than being rebuilt underneath it.
+
+**Almost none of the endpoint's answers are recorded, and they could not have been.** The conformance runner signs and addresses control-plane requests; it has no way to call a host that is not the control plane, so recording any of this needs runner support that is not built. m80's answers:
+
+| Situation | m80 | Basis |
+|---|---|---|
+| unknown endpoint host | `404` | no VM to serve |
+| no or malformed token header | `401` | guess |
+| token unknown, expired, or another VM's | `403` | guess |
+| port outside the token's `allowedPorts` | `403` | guess |
+| VM `TERMINATED` | `410` | guess |
+| VM `PENDING` | `503` | guess |
+| VM `SUSPENDED`, `autoResumeEnabled` | resume, then `200` | inferred |
+| VM `SUSPENDED`, no `autoResumeEnabled` | `503` | guess |
+| VM `RUNNING`, token good | `200` + stub body | stub |
+
+The auto-resume row is an inference rather than a guess: a suspended VM issues tokens, which is the order a client that means to wake a VM by calling it has to work in, and `autoResumeEnabled` is the member that says whether it may. The 401/403 split is the guess most worth arguing with — a single 403 would have been safer, but a missing credential and a rejected one are different failures to a client retrying with a fresh token.
 
 ## Health and introspection
 
