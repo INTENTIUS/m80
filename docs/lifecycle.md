@@ -63,4 +63,8 @@ Transient states settle on the injected clock with short deterministic delays, t
 
 ## Drift levers
 
-KubeMicroVM's drift detection and auto-suspend features watch for the service changing state underneath the CRs. m80 therefore exposes test levers that mutate state out of band. Force-suspend a VM, fail a build, terminate behind the operator's back, fail a connector with a chosen reason code. These levers are what make the operator's drift UAT runnable offline, and they are m80's version of mudflaps' failure injection, a feature the real service will never offer a test suite.
+KubeMicroVM's drift detection and auto-suspend features watch for the service changing state underneath the CRs, so m80 can fail things the real service would only fail by bad luck. This is m80's version of mudflaps' failure injection, a feature the real service will never offer a test suite.
+
+Two levers exist today, and both are Go APIs rather than endpoints: `images.Service.FailNextBuild` forces the next build of a named image to `FAILED`, and `connectors.Service.FailNext` settles the next connector of a named connector into `FAILED` carrying any of the seven reason codes. Neither can be provoked against real AWS on demand — you cannot ask EC2 to run a subnet out of addresses — which is the whole reason they exist.
+
+Being Go-only bounds what they are good for. A test that imports m80 can drive them; a UAT pointed at the container cannot reach them at all, so the offline drift run that motivates them ([#18](https://github.com/INTENTIUS/m80/issues/18)) needs an HTTP surface that is not built yet. Suspending or terminating a VM behind an operator's back needs no lever in any case — those are ordinary API calls that any test can make.
