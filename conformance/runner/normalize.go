@@ -30,7 +30,19 @@ var (
 	reAccount   = regexp.MustCompile(`\b\d{12}\b`)
 	reTimestamp = regexp.MustCompile(`\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})\b`)
 	reUUID      = regexp.MustCompile(`\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b`)
-	reSecretKey = regexp.MustCompile(`(?i)(token|secret|credential|password)`)
+	// "auth" is in here for the token map. CreateMicrovmAuthToken returns
+	// TokenParts, which the model describes as a mapping of auth token keys to
+	// values because "some token schemes require returning multiple auth
+	// headers" — so the key is a header name, and the recorded one is
+	// X-aws-proxy-auth. None of token/secret/credential/password appears in
+	// it, so the value survived normalization and the fixture holds a literal
+	// JWE that no generated token could ever equal.
+	//
+	// The generalization is deliberate: any future scheme's key is an auth
+	// header too. The cost is that a member whose name happens to contain
+	// "auth" and whose value is real signal would be redacted silently, so a
+	// tier entry is the place to argue one back if it ever comes up.
+	reSecretKey = regexp.MustCompile(`(?i)(token|secret|credential|password|auth)`)
 	reTimeKey   = regexp.MustCompile(`(?i)(time|createdat|updatedat|startedat|terminatedat|expir)`)
 
 	// Short AWS resource ids carry no conformance signal and never match

@@ -665,6 +665,85 @@ func TestTransitionsAndHandlersDoNotRace(t *testing.T) {
 	wg.Wait()
 }
 
+// The endpoint stub (#12) resolves a VM from the hostname the control plane
+// handed out, so the parse has to be exact — and region-scoped, or two
+// regions could serve each other's VMs.
+func TestLookupEndpoint(t *testing.T) {
+	h := newHarness(t, stubImages{runnable: true})
+	id := h.runIdle(t, 0, 0)
+	host := h.svc.Snapshot(h.vm(t, id)).Endpoint
+
+	gotRegion, gotID, ok := h.svc.LookupEndpoint(host)
+	if !ok || gotID != id || gotRegion != region {
+		t.Fatalf("LookupEndpoint(%q) = %q %q %v", host, gotRegion, gotID, ok)
+	}
+	// A port on the Host header must not defeat the lookup.
+	if _, _, ok := h.svc.LookupEndpoint(host + ":8080"); !ok {
+		t.Error("host:port form did not resolve")
+	}
+
+	for _, bad := range []string{
+		"", "localhost:4290", "example.com",
+		strings.Replace(host, "us-east-1", "eu-west-1", 1), // right shape, wrong region
+		strings.Replace(host, "lambda-microvm", "lambda-other", 1),
+		strings.TrimSuffix(host, ".aws"),
+	} {
+		if _, _, ok := h.svc.LookupEndpoint(bad); ok {
+			t.Errorf("LookupEndpoint(%q) resolved, want miss", bad)
+		}
+	}
+}
+
+func TestLookupIDAndStatus(t *testing.T) {
+	h := newHarness(t, stubImages{runnable: true})
+	id := h.runIdle(t, 900, 0)
+
+	reg, ok := h.svc.LookupID(id)
+	if !ok || reg != region {
+		t.Fatalf("LookupID = %q %v", reg, ok)
+	}
+	if _, ok := h.svc.LookupID("microvm-does-not-exist"); ok {
+		t.Error("LookupID resolved an unknown id")
+	}
+
+	state, autoResume, ok := h.svc.Status(region, id)
+	if !ok || state != StateRunning {
+		t.Fatalf("Status = %q %v %v", state, autoResume, ok)
+	}
+	if autoResume {
+		t.Error("autoResume true, but the policy set autoResumeEnabled false")
+	}
+	if _, _, ok := h.svc.Status(region, "microvm-nope"); ok {
+		t.Error("Status resolved an unknown id")
+	}
+}
+
+// RecordTraffic and Wake are the id-based forms the endpoint stub needs, and
+// must behave as Touch and Resume do.
+func TestRecordTrafficAndWake(t *testing.T) {
+	h := newHarness(t, stubImages{runnable: true})
+	id := h.runIdle(t, 900, 1800)
+
+	if m, ok := h.svc.RecordTraffic(region, id); !ok || m != 1 {
+		t.Fatalf("RecordTraffic = %d %v, want 1 true", m, ok)
+	}
+	if _, ok := h.svc.RecordTraffic(region, "microvm-nope"); ok {
+		t.Error("RecordTraffic resolved an unknown id")
+	}
+
+	h.do("POST", "/2025-09-09/microvms/"+id+"/suspend", nil)
+	h.clk.Advance(hop)
+	h.svc.Wake(region, id)
+	if got := h.state(t, id); got != StateRunning {
+		t.Fatalf("state %v after Wake, want RUNNING", got)
+	}
+	// The marker survives the round trip, which is the whole point of it.
+	if m, _ := h.svc.RecordTraffic(region, id); m != 2 {
+		t.Errorf("marker %d after a wake, want it to keep counting at 2", m)
+	}
+	h.svc.Wake(region, "microvm-nope") // must not panic
+}
+
 // A suspended VM still blocks its image's deletion; only a terminal one frees
 // it.
 func TestSuspendedVMStillBlocksImageDeletion(t *testing.T) {

@@ -33,6 +33,25 @@ AWS_MICROVM_ENDPOINT=http://m80:4290
 
 The `microvm` CLI's default token path goes through the operator's sub-resource and needs nothing. Only the CLI's `--direct` debug flag builds its own SDK client without an override.
 
+## Calling a VM's endpoint
+
+Each VM gets an endpoint hostname, and m80 answers it from the same process. Issue a token, then present it as `X-aws-proxy-auth`:
+
+```sh
+TOK=$(curl -s -X POST "$M80/2025-09-09/microvms/$VM/auth-token" \
+  -d '{"expirationInMinutes":60,"allowedPorts":[{"allPorts":{}}]}' \
+  | jq -r '.authToken["X-aws-proxy-auth"]')
+
+# by the hostname the control plane handed out
+curl "$M80/" -H "Host: $(curl -s "$M80/2025-09-09/microvms/$VM" | jq -r .endpoint)" \
+  -H "X-aws-proxy-auth: $TOK"
+
+# or by path, when forging a Host header is inconvenient
+curl "$M80/_m80/vm/$VM/" -H "X-aws-proxy-auth: $TOK"
+```
+
+The response body is m80's default stub, or whatever `-vm-stub-body <file>` points at. Either way an `X-M80-State-Marker` header carries a counter that survives suspend and resume, so a client can prove the VM kept its state. A suspended VM whose idle policy sets `autoResumeEnabled` wakes when its endpoint is called.
+
 ## Development
 
 Go 1.25, [just](https://github.com/casey/just) as the task runner. `just` lists the recipes; `just build`, `just test`, and `just fmt-check` match CI. The plan is tracked in [epic #22](https://github.com/INTENTIUS/m80/issues/22).

@@ -23,6 +23,7 @@ import (
 	"github.com/intentius/m80/internal/images"
 	"github.com/intentius/m80/internal/managedimages"
 	"github.com/intentius/m80/internal/store"
+	"github.com/intentius/m80/internal/tokens"
 	"github.com/intentius/m80/internal/vms"
 )
 
@@ -34,6 +35,10 @@ func main() {
 	// is quick, long enough that a demo shows the intermediate states rather
 	// than jumping straight to CREATED.
 	buildDelay := flag.Duration("build-delay", time.Second, "delay per build state transition")
+	// The per-VM endpoint stands in for whatever the user's own image would
+	// serve, so the payload has to be theirs. Empty means m80's default body,
+	// which reports the state marker.
+	stubBody := flag.String("vm-stub-body", "", "file whose contents the per-VM endpoint returns; empty for m80's default")
 	flag.Parse()
 
 	if *showVersion {
@@ -58,6 +63,21 @@ func main() {
 	// VM runs, and vms refuses to run an image with nothing built.
 	images.Register(srv, imageSvc, vmSvc)
 	vms.Register(srv, vmSvc, imageSvc)
+
+	var stub []byte
+	if *stubBody != "" {
+		raw, err := os.ReadFile(*stubBody)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "bad -vm-stub-body: %v\n", err)
+			os.Exit(2)
+		}
+		stub = raw
+	}
+	tokenSvc := tokens.NewService(clk)
+	tokens.Register(srv, tokenSvc, vmSvc)
+	// A VM's endpoint is a different host answered by the same process, so it
+	// cannot be a route pattern; it gets first look at every request instead.
+	srv.Intercept = tokens.NewEndpoint(tokenSvc, vmSvc, stub).Intercept
 
 	impl := len(srv.Implemented())
 	log.Info("m80 starting",
