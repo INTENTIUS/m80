@@ -4,7 +4,7 @@ One suite, three targets. This is the piece that gets built first, before any em
 
 ## Why suite-first
 
-Two implementations of one state machine will exist, m80 in Go and a floci service module in Java. Without a shared contract they drift, and drift in an emulator is worse than absence because it teaches clients wrong behavior. The suite is also the recording instrument. Where AWS docs are silent, the suite runs against the real service once, records the answer as a fixture, and both emulators implement to the fixture.
+Two implementations of one state machine exist, m80 in Go and a floci service module in Java. Without a shared contract they drift, and drift in an emulator is worse than absence because it teaches clients wrong behavior. The suite is also the recording instrument. Where AWS docs are silent, the suite runs against the real service once, records the answer as a fixture, and both emulators implement to the fixture.
 
 ## Shape
 

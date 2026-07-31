@@ -20,7 +20,7 @@ Delivery constraints. Nothing is pushed to the fork or upstream until the work i
 | `AWS::Lambda::MicrovmImage` through CloudFormation | floci | CFN emulation can only live where the CFN engine lives. chant's `MicrovmApp` and the kit's image stack deploy through CFN |
 | Conformance contract | shared suite | See [conformance.md](conformance.md) |
 
-floci upstream is `floci-io/floci`, Java, in-tree service modules, 18k stars, no MicroVM code or issues as of 2026-07-29. The contribution path is proven by the in-flight bedrock-agentcore work in the lex00 fork, which is the same shape, a 2026 AWS service added as a service module.
+floci upstream is `floci-io/floci`, Java, in-tree service modules, 18k stars, and still carries no MicroVM code and no MicroVM issues — re-checked 2026-07-31, so the hedge below is intact. The contribution path is proven by the in-flight bedrock-agentcore work in the lex00 fork, which is the same shape, a 2026 AWS service added as a service module.
 
 ## Asymmetric scope
 
@@ -36,25 +36,50 @@ If floci upstream grows its own full MicroVM service before the contribution lan
 
 ## What the module owes the suite
 
-Scored 2026-07-30 against the recorded fixtures: **34 diverging steps at `-tier all`, 27 at `-tier load-bearing`**. The seven that fall away are decoration — always-null config knobs, the leaked `versionStateTimeBucket` index key, `__type` on error bodies, message wording. The module is gated on the load-bearing set only, per [conformance.md](conformance.md); m80 aims at both because exactness is nearly free for a purpose-built emulator.
+The module is gated on the load-bearing set only, per [conformance.md](conformance.md); m80 aims at both because exactness is nearly free for a purpose-built emulator.
 
-The 27 are not 27 problems. The data already exists on the domain model and is simply never written to the response, so this is serialization work rather than state work.
+### The score cannot be read off a single run
+
+An earlier revision of this page reported "34 diverging steps at `-tier all`, 27 at `-tier load-bearing`". **That number is not reproducible and should not be planned against.** Re-measured 2026-07-31 against `feat/lambda-microvms` at `e6822a79`, with floci built as a fast-jar and the current suite pointed at it:
+
+```
+pass 0, fail 3, unimplemented 0, skipped 23
+```
+
+Three scenarios, each failing on its **first** step, and 23 steps that never ran. The runner halts a scenario when a step fails, because every later step assumes the state the failed one was supposed to create — so one divergence in `create` hides every divergence behind it. A count of diverging steps cannot be taken from one run at all; it is discovered one fix at a time, and the true figure is only ever a lower bound until the scenario runs to the end.
+
+The cluster table below came from reading the four response builders, not from the runner, so it stands. What does not stand is any claim to know how many steps diverge.
+
+### What blocks the first step
+
+`images-lifecycle/create` returns 14 of the fixture's 24 members. Ten are missing, and the tiering splits them cleanly:
+
+| Missing member | Tier |
+|---|---|
+| `resources`, `egressNetworkConnectors` | load-bearing |
+| `id`, `additionalOsCapabilities`, `buildPhaseOverrides`, `cpuConfigurations`, `environmentVariables`, `hooks`, `logging`, `roleConfiguration` | cosmetic |
+
+So at the gate that matters, **two members on one response builder** are what stand between floci and twelve currently unmeasurable steps in `images-lifecycle` alone. That is the place to start, and it is smaller than the old headline number made it sound.
+
+None of this is 27 problems, or 3, or any fixed count. The data already exists on the domain model and is simply never written to the response, so it is serialization work rather than state work.
 
 ### Where it lives
 
 Four private methods build every response: `imageNode`, `versionNode` and `buildNode` in `LambdaMicrovmsController`, and `connectorNode` in `LambdaNetworkConnectorsController`.
 
-| Cluster | Change | Steps |
-|---------|--------|-------|
-| Image projections | `imageNode(image, create)` models two shapes through a boolean; live has three. Create returns full detail, Get returns a *smaller* summary, List smaller again | ~14 |
-| Version detail | `versionNode` returns 5 members against ~14 load-bearing. The spec fields come from the parent image, which the method already receives | shared |
-| Connectors | `AssociatedComputeResourceTypes` and `NetworkProtocol` are request fields the module validates and then discards. The list envelope is `Items` where live sends `NetworkConnectors`, and list items are a distinct six-member shape rather than the full node | ~8 |
-| Builds | One build per version where live mints two, Graviton 4 and 3; missing `chipsetGeneration` and `snapshotBuild` on Get | 2 |
-| Behavioural | `latestActiveImageVersion` is set while the image is still `CREATING`; the update path settles to `CREATED` instead of walking `UPDATING` → `UPDATED`; `idlePolicy` is dropped from VM responses | ~9 |
+Ordered by what unblocks the most measurement, not by a step count — see above for why a step count is not available.
+
+| Cluster | Change |
+|---------|--------|
+| Image projections | `imageNode(image, create)` models two shapes through a boolean; live has three. Create returns full detail, Get returns a *smaller* summary, List smaller again. Create is also the step every image scenario dies on |
+| Version detail | `versionNode` returns 5 members against ~14 load-bearing. The spec fields come from the parent image, which the method already receives |
+| Connectors | `AssociatedComputeResourceTypes` and `NetworkProtocol` are request fields the module validates and then discards. The list envelope is `Items` where live sends `NetworkConnectors`, and list items are a distinct six-member shape rather than the full node |
+| Builds | One build per version where live mints two, Graviton 4 and 3; missing `chipsetGeneration` and `snapshotBuild` on Get |
+| Behavioural | `latestActiveImageVersion` is set while the image is still `CREATING`; the update path settles to `CREATED` instead of walking `UPDATING` → `UPDATED`; `idlePolicy` is dropped from VM responses |
 
 Eight model fields are missing and everything else is present but unserialized: `MicrovmImage.id`, `MicrovmImageVersion.updatedAt`, `MicrovmBuild.chipsetGeneration`, `NetworkConnector.{networkProtocol, associatedComputeResourceTypes, type, lastModified}`, `Microvm.idlePolicy`.
 
-Roughly 150 lines of Java plus test updates.
+Roughly 150 lines of Java plus test updates — an estimate from reading the four builders, not a measurement.
 
 ### Why the sparse bodies matter most
 
@@ -62,7 +87,7 @@ The KubeMicroVM operator runs its own drift detection, which works by reading ba
 
 ### Acceptance
 
-1. `-tier load-bearing` across the floci-relevant scenarios: 0 fail, from 27
+1. `-tier load-bearing` across the floci-relevant scenarios: 0 fail, and every step actually running rather than skipped behind an earlier failure
 2. The module's own test suite green, 649 tests across the lambda, lambdamicrovms and cloudformation packages
 3. `CloudFormationLambdaMicrovmsIntegrationTest` green — this is the gate that matters, since it drives both CFN types through the provisioners end to end
 

@@ -6,13 +6,13 @@ The Lambda MicroVMs control plane and the minimal data-plane edges a client can 
 
 | Area | Behavior |
 |------|----------|
-| MicroVM images | Create from an S3 source reference, build lifecycle with deterministic delay, base image catalog, versions, delete and prune |
+| MicroVM images | Create from an S3 source reference, build lifecycle with deterministic delay, base image catalog, versions, asynchronous delete |
 | MicroVMs | Create from an image, run, suspend, resume, terminate, idle and suspend timers |
 | State preservation | A suspended VM resumes with its prior state marker intact, the eight hour cap enforced on the injected clock |
 | Tokens | Issue per-VM auth tokens, validate `X-aws-proxy-auth` on the VM endpoint |
 | Endpoints | Each running VM exposes an HTTPS endpoint URL, m80 answers it with a configurable stub, enough for `curl` and readiness checks |
 | Network connectors | CRUD for VPC egress connectors, subnet and security group references accepted as opaque strings, service limits enforced |
-| Limits | The five memory tiers, name patterns and lengths, environment variable caps, connector and subnet bounds |
+| Limits | The five memory tiers, name patterns and lengths, connector subnet and security-group bounds, token expiry and port grants, the recorded account memory ceiling |
 
 ## Refused, on purpose
 
@@ -21,8 +21,8 @@ The Lambda MicroVMs control plane and the minimal data-plane edges a client can 
 | Actually running guest code | m80 is control-plane. The endpoint stub is observable, not a VM. mudflaps drew the same line and it held |
 | CloudFormation | Lives in floci where the CFN engine is, see [floci.md](floci.md) |
 | Replica pools, classes, sidecar injection | KubeMicroVM operator constructs, above the service API |
-| IAM evaluation | Roles and ARNs are accepted and echoed, never evaluated. A validation toggle can reject obviously malformed ARNs |
-| Real S3 | The image source reference is recorded, not fetched. An optional hook can assert the object exists against a configured S3 endpoint for integration setups that run m80 next to floci |
+| IAM evaluation | Roles and ARNs are accepted and echoed, never evaluated |
+| Real S3 | The image source reference is recorded, not fetched |
 | Billing | Suspended-costs-nothing is a pricing fact, not wire behavior |
 
 ## Fidelity anchors

@@ -165,4 +165,6 @@ The auto-resume row is an inference rather than a guess: a suspended VM issues t
 
 ## Health and introspection
 
-`/_m80/health` reports implemented operations against the model inventory, the mudflaps convention. A `/_m80/clock` test hook advances the injected clock so lifecycle tests are deterministic and instant.
+`/_m80/health` reports implemented operations against the model inventory, the mudflaps convention, plus the regions the store has been asked about. `/_m80/vm/{microvmId}/` reaches a VM's endpoint stub without forging a `Host` header.
+
+There is no clock endpoint. Transitions run on an injected clock and Go tests advance it directly, but nothing exposes that over HTTP, so a black-box client cannot skip a delay — it waits, or it starts m80 with a shorter `-build-delay`. An earlier draft of this page described a `/_m80/clock` hook that was never built.
