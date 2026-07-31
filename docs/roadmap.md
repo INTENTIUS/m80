@@ -20,7 +20,11 @@ One target remains. The endpoint probe, running or suspended, needs the runner t
 
 ## M3 — m80 itself
 
-Go, single binary, distroless image, injected clock, in-memory store. Implement to the suite. Health endpoint reports coverage against the model inventory. Failure injection and drift levers land with the state machine, not after.
+Done 2026-07-31. Go, single binary, distroless image, injected clock, in-memory store, implemented to the suite. All 29 operations answer; `/_m80/health` reports 29/29 with an empty pending list, and the conformance suite runs 71 checks with nothing skipped and nothing unimplemented. Failure injection landed with the state machines rather than after: a build can be forced to `FAILED`, a connector to any of the seven reason codes, and the account memory ceiling and request throttles are configurable.
+
+Pointing a real client at it was the check that mattered. The AWS CLI drives the whole lifecycle through an endpoint override — create an image, poll it to `SUCCESSFUL`, run a VM, suspend it, resume it, mint an auth token, tag the image — with dummy credentials, because m80 reads the region out of the sigv4 scope and validates no signature.
+
+Five findings came out of pointing an implementation at fixtures that had only ever been recorded. The normalizer and the fixture corpus drifted apart three separate times, which is the failure mode to expect: a fixture mismatch is as likely to be the harness as the emulator. Two more came from the models themselves — connector constraint violations answer a `ValidationException` the Lambda Core model does not list on any of its operations, and `ThrottleReason` exists on Lambda Core and classic Lambda but not on the MicroVMs model, so a chosen throttle reason is not expressible on the MicroVM operations at all.
 
 ## M4 — Operator proof
 
