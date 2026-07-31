@@ -75,6 +75,10 @@ type VM struct {
 	// state survived rather than being rebuilt.
 	Marker uint64
 
+	// Tags is set through the tags API. No recorded VM response carries a
+	// tags member, so it never reaches the wire.
+	Tags map[string]string
+
 	// stateSeq is bumped on every state change. A timer captures it when
 	// armed and does nothing if it no longer matches, which is how a stale
 	// idle or suspend-cap timer from an earlier RUNNING or SUSPENDED period
@@ -450,4 +454,50 @@ func sortStrings(s []string) {
 			s[j], s[j-1] = s[j-1], s[j]
 		}
 	}
+}
+
+// Tags and SetTags implement the tags package's Resource over VM ARNs.
+//
+// No recorded VM response carries a tags member, so these are stored and
+// never surfaced on the wire. That is deliberate: ListTags against a VM ARN
+// has to work, and inventing a tags member on GetMicrovm to show them would
+// be a divergence on every read.
+func (s *Service) Tags(region, arn string) (map[string]string, bool) {
+	id, ok := vmIDFromARN(arn)
+	if !ok {
+		return nil, false
+	}
+	vm, found := s.Get(region, id)
+	if !found {
+		return nil, false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if vm.Tags == nil {
+		return map[string]string{}, true
+	}
+	return vm.Tags, true
+}
+
+func (s *Service) SetTags(region, arn string, tags map[string]string) bool {
+	id, ok := vmIDFromARN(arn)
+	if !ok {
+		return false
+	}
+	vm, found := s.Get(region, id)
+	if !found {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	vm.Tags = tags
+	return true
+}
+
+func vmIDFromARN(arn string) (string, bool) {
+	i := strings.LastIndex(arn, ":microvm:")
+	if i < 0 {
+		return "", false
+	}
+	return arn[i+len(":microvm:"):], true
 }

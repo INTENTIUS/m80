@@ -268,3 +268,36 @@ func newUUID() string {
 	h := hex.EncodeToString(b[:])
 	return strings.Join([]string{h[0:8], h[8:12], h[12:16], h[16:20], h[20:32]}, "-")
 }
+
+// Tags and SetTags implement the tags package's Resource over connector ARNs.
+// As with VMs, no recorded connector response carries a tags member, so they
+// are stored and never surfaced.
+func (s *Service) Tags(region, arn string) (map[string]string, bool) {
+	if !strings.Contains(arn, ":network-connector:") {
+		return nil, false
+	}
+	conn, ok := s.Get(region, arn)
+	if !ok {
+		return nil, false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if conn.Tags == nil {
+		return map[string]string{}, true
+	}
+	return conn.Tags, true
+}
+
+func (s *Service) SetTags(region, arn string, tags map[string]string) bool {
+	if !strings.Contains(arn, ":network-connector:") {
+		return false
+	}
+	conn, ok := s.Get(region, arn)
+	if !ok {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	conn.Tags = tags
+	return true
+}
