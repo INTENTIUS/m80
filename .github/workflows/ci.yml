@@ -37,3 +37,19 @@ jobs:
 
       - name: Test with race and coverage
         run: go test -race -coverprofile=coverage.out ./...
+
+  docs:
+    name: Docs build (strict)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install mkdocs-material
+        run: pip install mkdocs-material
+
+      - name: Build docs (strict)
+        run: mkdocs build --strict

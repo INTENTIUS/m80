@@ -6,7 +6,8 @@
     "operatorRoleArn": "arn:aws:iam::123456789012:role/m80-conformance-connector-operator"
   },
   "tags": [
-    "documented-only"
+    "documented-only",
+    "subset:floci"
   ],
   "steps": [
     {

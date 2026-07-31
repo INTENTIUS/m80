@@ -1,0 +1,47 @@
+site_name: m80
+site_description: A standalone, stateful local emulator of the AWS Lambda MicroVMs API.
+site_url: https://intentius.github.io/m80/
+repo_url: https://github.com/INTENTIUS/m80
+repo_name: intentius/m80
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep orange
+      accent: deep orange
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep orange
+      accent: deep orange
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.top
+    - content.code.copy
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.highlight
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+nav:
+  - Overview: index.md
+  - Scope: scope.md
+  - API surface: api-surface.md
+  - Lifecycle: lifecycle.md
+  - Conformance: conformance.md
+  - Division of labor with floci: floci.md
+  - Roadmap: roadmap.md
