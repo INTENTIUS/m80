@@ -90,6 +90,24 @@ rest-json with versioned URI prefixes, riding the Lambda endpoint family. m80 li
 
 Errors matter as much as happy paths. The conformance suite records the real service's error codes for the standard set. Not found, conflict on double-terminate, validation failures for each enforced limit, throttling shape for the quota tests KubeMicroVM's QuotaGuard exercises. Emulating the throttling envelope is what lets their rate-limiter logic be tested offline.
 
+## Network connectors
+
+Five responses, four different member sets, and that is the model rather than an accident of recording. Create and Delete return a base six (`Arn`, `Name`, `Id`, `Configuration`, `OperatorRole`, `State`). Get adds `LastModified` and the state and update status members. Update adds `LastModified` and the update status but not `StateReason`. Only `NetworkConnectorSummary` — the list shape — carries `Type`. Absent means absent: a connector that has never been updated has no `LastUpdateStatus` in its recorded response at all, and emitting one as `null` diverges on every read. `ListNetworkConnectors` likewise omits `NextMarker` entirely, so a client looping until the marker is null would loop forever.
+
+Bad requests come back two different ways, and which one is recorded.
+
+| Kind | Error type | Body | Shape |
+|---|---|---|---|
+| Model constraint — list lengths, enum membership | `ValidationException` | lowercase `message` | `1 validation error detected: Value '[…]' at 'configuration.vpcEgressConfiguration.subnetIds' failed to satisfy constraint: Member must have length less than or equal to 16` |
+| Service logic — the four enforced-but-modeled-optional members | `InvalidParameterValueException` | lowercase `message` | prose, e.g. `ClientToken is a required field` |
+| Not found | `ResourceNotFoundException` | **capital `Message`** | `Network connector not found for: arn:aws:lambda:…:network-connector:<id>` |
+
+Three things there are only knowable from a recording. `ValidationException` is not listed as an error of any connector operation in the Lambda Core model — the constraint layer sits in front of the service and answers it regardless. The member path in that message is camelCase (`configuration.vpcEgressConfiguration.subnetIds`) even though every wire member is PascalCase. And not-found answers with a capital `Message`, matching Lambda Core's own member style rather than the lowercase `message` Lambda Microvms uses, echoing the ARN the service built from whatever identifier arrived rather than the identifier itself.
+
+**The constraint layer runs first, and in full.** The too-many-subnets probe sent seventeen subnets *and* omitted `ClientToken`, `OperatorRole`, `NetworkProtocol` and `AssociatedComputeResourceTypes` — four of the enforced members missing — and the service still answered about `subnetIds`. A client fixing errors one at a time sees every constraint violation before it sees the first prose message.
+
+The seven `NetworkConnectorStateReasonCode` values (`InvalidSubnet`, `InvalidSecurityGroup`, `SubnetOutOfIPAddresses`, `InsufficientRolePermissions`, `Ec2RequestLimitExceeded`, `DisallowedByVpcEncryptionControl`, `InternalError`) are shared verbatim with `NetworkConnectorLastUpdateStatusReasonCode`. None can be provoked against real AWS on demand — you cannot ask EC2 to run a subnet out of addresses — so m80 injects them, which is the only way a consumer's error handling gets exercised at all.
+
 ## Tokens
 
 `CreateMicrovmAuthToken` returns `authToken`, a `TokenParts` map. The model describes it as a mapping of auth token keys to values because "some token schemes require returning multiple auth headers", so the key is a header name; the recorded scheme returns exactly one, `X-aws-proxy-auth`. The value is a JWE in compact serialization — five parts, empty encrypted-key segment because the header says `alg: dir`, header carrying a `kid` UUID and `enc: A256GCM`. m80 mints that shape from random bytes and validates by table lookup rather than by decrypting; nothing should be read out of one past the header.
