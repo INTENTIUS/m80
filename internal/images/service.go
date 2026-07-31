@@ -1,6 +1,7 @@
 package images
 
 import (
+	"strings"
 	"sync"
 	"time"
 
@@ -289,4 +290,29 @@ func sortStrings(s []string) {
 			s[j], s[j-1] = s[j-1], s[j]
 		}
 	}
+}
+
+// Tags and SetTags implement the tags package's Resource over image ARNs.
+// The tag set lives on the image so it appears in the image's own responses;
+// a copy kept in the tags package would be a second truth.
+func (s *Service) Tags(region, arn string) (map[string]string, bool) {
+	img, ok := s.Get(region, arn)
+	if !ok || !strings.Contains(arn, ":microvm-image:") {
+		return nil, false
+	}
+	if img.Tags == nil {
+		return map[string]string{}, true
+	}
+	return img.Tags, true
+}
+
+func (s *Service) SetTags(region, arn string, tags map[string]string) bool {
+	img, ok := s.Get(region, arn)
+	if !ok || !strings.Contains(arn, ":microvm-image:") {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	img.Tags = tags
+	return true
 }

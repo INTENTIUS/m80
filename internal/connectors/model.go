@@ -106,6 +106,10 @@ type Connector struct {
 	State        string
 	ClientToken  string
 
+	// Tags is set through the tags API and never reaches the wire; no
+	// recorded connector response carries a tags member.
+	Tags map[string]string
+
 	StateReason     *string
 	StateReasonCode *string
 	LastModified    *time.Time

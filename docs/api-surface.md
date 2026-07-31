@@ -90,6 +90,16 @@ rest-json with versioned URI prefixes, riding the Lambda endpoint family. m80 li
 
 Errors matter as much as happy paths. The conformance suite records the real service's error codes for the standard set. Not found, conflict on double-terminate, validation failures for each enforced limit, throttling shape for the quota tests KubeMicroVM's QuotaGuard exercises. Emulating the throttling envelope is what lets their rate-limiter logic be tested offline.
 
+## Tags
+
+`TagResource`, `UntagResource` and `ListTags` ride the classic Lambda tags routes at `/2017-03-31/tags/{Resource}` — a third path prefix on the same listener, belonging to neither MicroVM URI family. `Resource` is a whole ARN in one path segment, which works because every taggable MicroVM-family ARN is colon-separated with no slash in it.
+
+Both mutations answer `204` with an empty body; the recorded fixtures for those steps are zero-byte files, which is what no content looks like on disk. `ListTags` answers `200` with a `Tags` map, and an untagged resource gets an empty object rather than `null`, so a client can index it without a nil check. `TagKeys` on untag rides the query string as `tagKeys`; the SDK repeats the parameter and m80 also accepts it comma-separated, since neither costs anything.
+
+Tagging merges rather than replaces — it adds and overwrites the keys it names and leaves the rest alone, which is what untag exists for — and untag is idempotent, which is what a reconciler converging on a desired tag set needs.
+
+Tags are stored by the package that owns the resource rather than in one central map. A tag set belongs to the thing it is on: an image's tags have to appear in the image's own responses, and a copy kept elsewhere would be a second truth that drifts the first time anything reads the wrong one. VM and connector ARNs are taggable too, but no recorded response for either carries a `tags` member, so theirs are stored and never surfaced — inventing one to show them would diverge on every read.
+
 ## Network connectors
 
 Five responses, four different member sets, and that is the model rather than an accident of recording. Create and Delete return a base six (`Arn`, `Name`, `Id`, `Configuration`, `OperatorRole`, `State`). Get adds `LastModified` and the state and update status members. Update adds `LastModified` and the update status but not `StateReason`. Only `NetworkConnectorSummary` — the list shape — carries `Type`. Absent means absent: a connector that has never been updated has no `LastUpdateStatus` in its recorded response at all, and emitting one as `null` diverges on every read. `ListNetworkConnectors` likewise omits `NextMarker` entirely, so a client looping until the marker is null would loop forever.
