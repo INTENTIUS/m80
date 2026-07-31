@@ -75,6 +75,10 @@ type VM struct {
 	// state survived rather than being rebuilt.
 	Marker uint64
 
+	// MemoryMiB is what this VM allocates, copied from its image at launch
+	// so the account ceiling can be totalled without asking images again.
+	MemoryMiB int
+
 	// Tags is set through the tags API. No recorded VM response carries a
 	// tags member, so it never reaches the wire.
 	Tags map[string]string
@@ -163,7 +167,7 @@ func (s *Service) Snapshots(region string) []VM {
 // Run creates a VM in PENDING and schedules it into RUNNING. The eight-hour
 // session cap is armed here and never re-armed: it bounds total life from
 // launch, regardless of how the VM spends it.
-func (s *Service) Run(region, imageArn, imageVersion string, idle *IdlePolicy) *VM {
+func (s *Service) Run(region, imageArn, imageVersion string, memoryMiB int, idle *IdlePolicy) *VM {
 	id := "microvm-" + newUUID()
 	now := s.clock.Now()
 	vm := &VM{
@@ -172,6 +176,7 @@ func (s *Service) Run(region, imageArn, imageVersion string, idle *IdlePolicy) *
 		ImageArn:     imageArn,
 		ImageVersion: imageVersion,
 		State:        StatePending,
+		MemoryMiB:    memoryMiB,
 		StartedAt:    now,
 		LastActivity: now,
 		IdlePolicy:   idle,
@@ -500,4 +505,21 @@ func vmIDFromARN(arn string) (string, bool) {
 		return "", false
 	}
 	return arn[i+len(":microvm:"):], true
+}
+
+// Allocated reports the memory currently allocated across non-terminal VMs
+// and how many there are, for the account quota check. A terminated VM has
+// given its memory back.
+func (s *Service) Allocated(region string) (memoryMiB, count int) {
+	vms := s.List(region)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, vm := range vms {
+		if vm.State == StateTerminated {
+			continue
+		}
+		memoryMiB += vm.MemoryMiB
+		count++
+	}
+	return memoryMiB, count
 }

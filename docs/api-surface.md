@@ -84,6 +84,23 @@ Also in the model, no recording run needed for shapes. `AccessDeniedException`, 
 
 What the model cannot say is which operation returns which error when, and with what status. Two of those are now recorded. A terminal-state mutation is `400 ValidationException`, not either modeled conflict type. Exhausting capacity is `402 ServiceQuotaExceededException` against an account memory ceiling, reached at six concurrent `RunMicrovm` calls — and reached *instead of* any throttle, so the six `ThrottleReason` values remain unobserved and are implemented from the model alone. Provoking them would need an account whose memory quota is raised well above its concurrency limit, which is a support-ticket exercise rather than a recording one.
 
+## Throttles and quotas
+
+Two behaviors, and the difference between them decides the defaults.
+
+The **account memory ceiling is recorded**, so it is on by default at the recorded ceiling of 4096 MiB (`-max-account-memory-mib`). Six concurrent `RunMicrovm` calls on a fresh account left two VMs running at the 2048 MiB default tier and rejected four with `402 ServiceQuotaExceededException`. Terminating a VM gives its memory back, so the ceiling bounds live allocation rather than lifetime count.
+
+**Throttling was never observed at all** — the memory ceiling fires first and hides it — so every throttle is implemented from the model and is off by default. An emulator that throttles by surprise is worse than one that never does. `-throttle-requests-per-interval` arms it.
+
+The throttle's wire shape depends on which service the operation belongs to, and that is the model rather than a choice:
+
+| Family | Error type | Reason member |
+|---|---|---|
+| Lambda Microvms (`/2025-09-09/`) | `ThrottlingException`, 429 | none — the model's `TooManyRequestsException` carries only `Type` and `message` |
+| Lambda Core (`/2026-04-04/`) and tags (`/2017-03-31/`) | `TooManyRequestsException`, 429 | `Reason`, a `ThrottleReason` |
+
+So a chosen `ThrottleReason` is observable on the connector and tags operations and is **simply not expressible** on the MicroVM ones. `ConcurrentSnapshotCreateLimitExceeded` — the value QuotaGuard testing cares about — names a limit on image builds, but `CreateMicrovmImage` is a MicroVM-family operation, so `-max-concurrent-snapshot-creates` names the reason in the message rather than in a member that does not exist.
+
 ## Protocol notes
 
 rest-json with versioned URI prefixes, riding the Lambda endpoint family. m80 listens on one port and dispatches by route across the three URI families. The SDK's endpoint override points the whole client at m80, which is how the KubeMicroVM operator, the `microvm` CLI with `--direct`, and any SDK consumer attach.

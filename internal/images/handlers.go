@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/intentius/m80/internal/api"
+	"github.com/intentius/m80/internal/limits"
 	"github.com/intentius/m80/internal/managedimages"
 )
 
@@ -135,6 +136,15 @@ func (h *handlers) create(w http.ResponseWriter, r *http.Request) {
 	if req.Name == nil {
 		validationError(w, []string{"Value null at 'name' failed to satisfy constraint: Member must not be null"})
 		return
+	}
+
+	// A build is a snapshot create, so the concurrent-snapshot cap applies
+	// here. Off unless a tester arms it.
+	if q := h.svc.SnapshotQuota; q != nil {
+		if !q.AllowSnapshotCreate(h.svc.BuildsInFlight(api.RegionFromRequest(r))) {
+			limits.WriteSnapshotThrottle(w, 5)
+			return
+		}
 	}
 
 	memory := DefaultMemoryMiB

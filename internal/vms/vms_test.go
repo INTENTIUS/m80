@@ -24,6 +24,8 @@ const (
 // how a still-building image looks to vms.
 type stubImages struct{ runnable bool }
 
+func (s stubImages) MemoryMiB(region, identifier string) int { return 2048 }
+
 func (s stubImages) ResolveRunnable(region, identifier string) (string, string, bool) {
 	if !s.runnable {
 		return "", "", false
@@ -46,7 +48,7 @@ func newHarness(t *testing.T, images ImageResolver) *harness {
 	st := store.New()
 	srv := api.NewServer(clk, st, "test")
 	svc := NewService(clk, st, hop)
-	Register(srv, svc, images)
+	Register(srv, svc, images, nil)
 	return &harness{srv: srv, svc: svc, clk: clk}
 }
 
@@ -618,7 +620,7 @@ func TestTransitionsAndHandlersDoNotRace(t *testing.T) {
 	clk := clock.Real{}
 	srv := api.NewServer(clk, st, "test")
 	svc := NewService(clk, st, time.Millisecond)
-	Register(srv, svc, stubImages{runnable: true})
+	Register(srv, svc, stubImages{runnable: true}, nil)
 
 	get := func(path string) {
 		r := httptest.NewRequest("GET", path, nil)
@@ -635,7 +637,7 @@ func TestTransitionsAndHandlersDoNotRace(t *testing.T) {
 	}
 
 	idle := 1
-	vm := svc.Run(region, imgArn, "1.0", &IdlePolicy{
+	vm := svc.Run(region, imgArn, "1.0", 2048, &IdlePolicy{
 		AutoResumeEnabled:      false,
 		MaxIdleDurationSeconds: &idle,
 	})

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/intentius/m80/internal/api"
+	"github.com/intentius/m80/internal/limits"
 )
 
 // ImageResolver is what vms needs from images: does this image exist, and
@@ -18,10 +19,21 @@ type ImageResolver interface {
 	// ResolveRunnable returns the image ARN and the version a VM would run,
 	// or false when the image is unknown or has nothing runnable.
 	ResolveRunnable(region, identifier string) (arn string, version string, ok bool)
+	// MemoryMiB reports what a VM off this image allocates, for the account
+	// memory ceiling.
+	MemoryMiB(region, identifier string) int
 }
 
-func Register(srv *api.Server, svc *Service, images ImageResolver) {
-	h := &handlers{svc: svc, images: images}
+// Quota is the account ceiling RunMicrovm is checked against. The recording
+// found the binding limit to be allocated memory rather than VM count: six
+// concurrent calls on a fresh account left two VMs running and rejected four.
+type Quota interface {
+	AllowMemory(currentMiB, wantMiB int) bool
+	AllowMicrovm(current int) bool
+}
+
+func Register(srv *api.Server, svc *Service, images ImageResolver, quota Quota) {
+	h := &handlers{svc: svc, images: images, quota: quota}
 	srv.Register("RunMicrovm", h.run)
 	srv.Register("GetMicrovm", h.get)
 	srv.Register("ListMicrovms", h.list)
@@ -33,6 +45,7 @@ func Register(srv *api.Server, svc *Service, images ImageResolver) {
 type handlers struct {
 	svc    *Service
 	images ImageResolver
+	quota  Quota
 }
 
 func decode(r *http.Request, into any) error {
@@ -96,7 +109,18 @@ func (h *handlers) run(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	vm := h.svc.Run(region, arn, version, idle)
+	// The account ceiling, checked after the image resolves so a run against
+	// a missing image still reports the missing image.
+	if h.quota != nil {
+		want := h.images.MemoryMiB(region, *req.ImageIdentifier)
+		allocated, live := h.svc.Allocated(region)
+		if !h.quota.AllowMemory(allocated, want) || !h.quota.AllowMicrovm(live) {
+			limits.WriteQuotaExceeded(w, "")
+			return
+		}
+	}
+
+	vm := h.svc.Run(region, arn, version, h.images.MemoryMiB(region, *req.ImageIdentifier), idle)
 	api.WriteJSON(w, http.StatusOK, detail(h.svc.Snapshot(vm)))
 }
 

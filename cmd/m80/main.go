@@ -22,6 +22,7 @@ import (
 	"github.com/intentius/m80/internal/clock"
 	"github.com/intentius/m80/internal/connectors"
 	"github.com/intentius/m80/internal/images"
+	"github.com/intentius/m80/internal/limits"
 	"github.com/intentius/m80/internal/managedimages"
 	"github.com/intentius/m80/internal/store"
 	"github.com/intentius/m80/internal/tags"
@@ -41,6 +42,19 @@ func main() {
 	// serve, so the payload has to be theirs. Empty means m80's default body,
 	// which reports the state marker.
 	stubBody := flag.String("vm-stub-body", "", "file whose contents the per-VM endpoint returns; empty for m80's default")
+	// Quotas and throttles. The memory ceiling is recorded and on by default;
+	// throttling was never observed live and is off unless asked for.
+	maxMemory := flag.Int("max-account-memory-mib", limits.DefaultAccountMemoryMiB,
+		"account allocated-memory ceiling across running VMs; 0 for uncapped")
+	maxVMs := flag.Int("max-microvms", 0, "cap on non-terminal VMs; 0 for uncapped")
+	maxSnapshots := flag.Int("max-concurrent-snapshot-creates", 0,
+		"cap on in-flight image builds; 0 for uncapped")
+	throttleEvery := flag.Int("throttle-requests-per-interval", 0,
+		"requests allowed per interval before throttling; 0 disables throttling")
+	throttleInterval := flag.Int("throttle-interval-seconds", 1, "length of the throttle interval")
+	throttleReason := flag.String("throttle-reason", "",
+		"ThrottleReason on throttles for the connector and tags families; the MicroVM model has no Reason member")
+	retryAfter := flag.Int("throttle-retry-after-seconds", 0, "Retry-After on throttles; 0 omits it")
 	flag.Parse()
 
 	if *showVersion {
@@ -59,12 +73,28 @@ func main() {
 	clk := clock.Real{}
 	srv := api.NewServer(clk, st, m80.Version)
 	managedimages.Register(srv)
+	if *throttleReason != "" && !limits.ValidThrottleReason(*throttleReason) {
+		fmt.Fprintf(os.Stderr, "bad -throttle-reason %q; want one of %v\n", *throttleReason, limits.ThrottleReasons)
+		os.Exit(2)
+	}
+	limitSvc := limits.NewService(clk, limits.Config{
+		RequestsPerInterval:          *throttleEvery,
+		IntervalSeconds:              *throttleInterval,
+		Reason:                       *throttleReason,
+		RetryAfterSeconds:            *retryAfter,
+		MaxAccountMemoryMiB:          *maxMemory,
+		MaxConcurrentSnapshotCreates: *maxSnapshots,
+		MaxMicrovms:                  *maxVMs,
+	})
+	srv.Gate = limitSvc.Gate
+
 	imageSvc := images.NewService(clk, st, *buildDelay)
+	imageSvc.SnapshotQuota = limitSvc
 	vmSvc := vms.NewService(clk, st, *buildDelay)
 	// Each side asks the other one question: images refuses to delete while a
 	// VM runs, and vms refuses to run an image with nothing built.
 	images.Register(srv, imageSvc, vmSvc)
-	vms.Register(srv, vmSvc, imageSvc)
+	vms.Register(srv, vmSvc, imageSvc, limitSvc)
 
 	var stub []byte
 	if *stubBody != "" {

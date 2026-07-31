@@ -52,6 +52,20 @@ curl "$M80/_m80/vm/$VM/" -H "X-aws-proxy-auth: $TOK"
 
 The response body is m80's default stub, or whatever `-vm-stub-body <file>` points at. Either way an `X-M80-State-Marker` header carries a counter that survives suspend and resume, so a client can prove the VM kept its state. A suspended VM whose idle policy sets `autoResumeEnabled` wakes when its endpoint is called.
 
+## Throttles and quotas
+
+The account memory ceiling is recorded live and on by default: six concurrent `RunMicrovm` calls on a fresh account admit two 2048 MiB VMs and reject four with `402 ServiceQuotaExceededException`. Throttling was never observed against the real service — the memory ceiling fires first and hides it — so it is off unless asked for.
+
+```sh
+m80 -max-account-memory-mib 8192          # raise the recorded 4096 ceiling
+m80 -max-microvms 3                       # cap by count instead
+m80 -max-concurrent-snapshot-creates 1    # cap in-flight image builds
+m80 -throttle-requests-per-interval 10 -throttle-interval-seconds 1 \
+    -throttle-reason CallerRateLimitExceeded -throttle-retry-after-seconds 5
+```
+
+`-throttle-reason` is observable on the connector and tags operations, whose models carry `TooManyRequestsException.Reason`. The MicroVM family has no such member and throttles as `ThrottlingException` instead.
+
 ## Development
 
 Go 1.25, [just](https://github.com/casey/just) as the task runner. `just` lists the recipes; `just build`, `just test`, and `just fmt-check` match CI. The plan is tracked in [epic #22](https://github.com/INTENTIUS/m80/issues/22).
