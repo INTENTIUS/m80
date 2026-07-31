@@ -1,0 +1,12 @@
+{
+  "NetworkConnectors": [
+    {
+      "Arn": "arn:aws:lambda:REGION:ACCOUNT:network-connector:nc-UUID",
+      "Id": "nc-UUID",
+      "LastModified": "TIMESTAMP",
+      "Name": "m80-conf-connector",
+      "State": "ACTIVE",
+      "Type": "VPC_EGRESS"
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "rationale": "Fidelity is not uniformly valuable. A member a reconciler dereferences is load-bearing; a member that is always null and that nothing branches on is decoration. Targets with different jobs are held to different bars: m80 aims at every member because exactness is nearly free for a purpose-built emulator, while the floci module is gated on the load-bearing set, which is what CloudFormation provisioning and a reconcile loop actually depend on. Run with -tier load-bearing to score against it.",
+
+  "cosmeticMembers": {
+    "additionalOsCapabilities": "config knob, null in every recorded response, no consumer",
+    "buildPhaseOverrides": "config knob, null in every recorded response, no consumer",
+    "cpuConfigurations": "config knob, null in every recorded response, no consumer",
+    "environmentVariables": "config knob, null in every recorded response, no consumer",
+    "hooks": "config knob, null in every recorded response, no consumer",
+    "logging": "config knob, null in every recorded response, no consumer",
+    "roleConfiguration": "config knob, null in every recorded response, no consumer",
+    "id": "generated uuid; the ARN is the identifier everywhere a client looks",
+    "versionStateTimeBucket": "service index key leaked into the response, e.g. SUCCESSFUL#26073006",
+    "quotaCode": "null even on the recorded 402, so nothing can branch on it",
+    "serviceCode": "null even on the recorded 402, so nothing can branch on it",
+    "resourceId": "null on every recorded not-found",
+    "resourceType": "null on every recorded not-found",
+    "__type": "Smithy error discriminator some emulators add; the SDKs read X-Amzn-Errortype and the live service does not send it in the body"
+  },
+
+  "proseMembers": {
+    "message": "human-readable text; status and errorType carry the control flow",
+    "Message": "the IAM-layer spelling of the same"
+  },
+
+  "retainedDespiteAlwaysNull": {
+    "latestFailedImageVersion": "null only because no recorded build failed; a reconciler reads it to detect one",
+    "terminationReasonCode": "null only because no recorded VM died unexpectedly; it is why a VM died",
+    "executionRoleArn": "echoed spec, and drift detection compares echoed spec",
+    "nextToken": "pagination; a client loops until it is null, so its presence is control flow"
+  }
+}

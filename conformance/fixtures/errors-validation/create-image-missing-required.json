@@ -1,0 +1,3 @@
+{
+  "message": "3 validation errors detected: Value null at 'baseImageArn' failed to satisfy constraint: Member must not be null; Value null at 'codeArtifact' failed to satisfy constraint: Member must not be null; Value null at 'buildRoleArn' failed to satisfy constraint: Member must not be null"
+}

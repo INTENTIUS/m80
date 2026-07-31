@@ -6,7 +6,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 )
@@ -198,6 +200,224 @@ func TestRecordWritesRedactedFixture(t *testing.T) {
 	}
 }
 
+// The states an until-poll walks through are the one thing only a live
+// recording can answer, and the settled fixture alone throws them away.
+func TestRecordCapturesObservedStates(t *testing.T) {
+	states := []string{"PENDING", "PENDING", "RUNNING"}
+	var i int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s := states[min(i, len(states)-1)]
+		i++
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"state":"` + s + `"}`))
+	}))
+	defer srv.Close()
+
+	cases, fixtures := t.TempDir(), t.TempDir()
+	writeScenario(t, cases, "vms.json", Scenario{
+		ID: "vms", Steps: []Step{{
+			Name: "get-until-running", Operation: "GetMicrovm",
+			Method: "GET", Path: "/2025-09-09/microvms/vm1",
+			Expect: Expect{Status: 200},
+			Until:  &Until{Path: "state", Equals: "RUNNING", TimeoutSec: 5, IntervalSec: 0.01},
+		}},
+	})
+
+	r := newTestRunner(t, srv.URL, cases, fixtures, true, nil)
+	scenarios, err := r.LoadScenarios()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := outcomes(r.Run(scenarios)); got["vms/get-until-running"] != Pass {
+		t.Fatalf("record run: %v", got)
+	}
+
+	raw, err := os.ReadFile(filepath.Join(fixtures, "vms", "get-until-running.meta.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var meta fixtureMeta
+	if err := json.Unmarshal(raw, &meta); err != nil {
+		t.Fatal(err)
+	}
+	// Deduplicated: two PENDING polls are one observation, and the
+	// transition into RUNNING is what matters.
+	want := []string{"PENDING", "RUNNING"}
+	if len(meta.ObservedStates) != len(want) {
+		t.Fatalf("observed %v, want %v", meta.ObservedStates, want)
+	}
+	for i, s := range want {
+		if meta.ObservedStates[i] != s {
+			t.Fatalf("observed %v, want %v", meta.ObservedStates, want)
+		}
+	}
+}
+
+// Case timeouts are sized for real AWS. Against a target that never reaches
+// the awaited state, the unclamped value is dead wall-clock before the step
+// can fail.
+func TestMaxPollSecClampsUntilTimeout(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"state":"CREATING"}`)) // never reaches CREATED
+	}))
+	defer srv.Close()
+
+	cases := t.TempDir()
+	writeScenario(t, cases, "images.json", Scenario{
+		ID: "images-basic", Steps: []Step{{
+			Name: "get-until-created", Operation: "GetMicrovmImage",
+			Method: "GET", Path: "/2025-09-09/microvm-images/img1",
+			Expect: Expect{Status: 200},
+			Until:  &Until{Path: "state", Equals: "CREATED", TimeoutSec: 600, IntervalSec: 0.01},
+		}},
+	})
+
+	r := newTestRunner(t, srv.URL, cases, t.TempDir(), false, nil)
+	r.cfg.MaxPollSec = 0.2
+	scenarios, err := r.LoadScenarios()
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	got := outcomes(r.Run(scenarios))
+	elapsed := time.Since(start)
+
+	if got["images-basic/get-until-created"] != Fail {
+		t.Fatalf("want fail once the clamp elapses, got %v", got)
+	}
+	if elapsed > 30*time.Second {
+		t.Errorf("clamp ignored: step took %s against a 600s case timeout", elapsed)
+	}
+	// The clamp must not leak back into the scenario it was applied to.
+	if scenarios[0].Steps[0].Until.TimeoutSec != 600 {
+		t.Errorf("case timeout mutated to %v", scenarios[0].Steps[0].Until.TimeoutSec)
+	}
+}
+
+// A step that settles on its first poll has no transition to report, and a
+// one-element list would just restate the fixture.
+func TestRecordOmitsObservedStatesWhenNoTransition(t *testing.T) {
+	srv := stub()
+	defer srv.Close()
+	cases, fixtures := t.TempDir(), t.TempDir()
+	writeScenario(t, cases, "images.json", Scenario{
+		ID: "images-basic", Steps: []Step{{
+			Name: "get-until-created", Operation: "GetMicrovmImage",
+			Method: "GET", Path: "/2025-09-09/microvm-images/img1",
+			Expect: Expect{Status: 200},
+			Until:  &Until{Path: "state", Equals: "CREATED", TimeoutSec: 5, IntervalSec: 0.01},
+		}},
+	})
+
+	r := newTestRunner(t, srv.URL, cases, fixtures, true, nil)
+	scenarios, err := r.LoadScenarios()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := outcomes(r.Run(scenarios)); got["images-basic/get-until-created"] != Pass {
+		t.Fatalf("record run: %v", got)
+	}
+
+	raw, err := os.ReadFile(filepath.Join(fixtures, "images-basic", "get-until-created.meta.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var meta fixtureMeta
+	if err := json.Unmarshal(raw, &meta); err != nil {
+		t.Fatal(err)
+	}
+	if meta.ObservedStates != nil {
+		t.Errorf("observedStates should be omitted, got %v", meta.ObservedStates)
+	}
+}
+
+// A case spells an ARN once with ${region} and it follows whatever region the
+// run signs for. Pinning one made every case silently wrong elsewhere.
+func TestResolveVarsExpandsRegionIntoParams(t *testing.T) {
+	vars := map[string]string{
+		"region":       "eu-west-1",
+		"baseImageArn": "arn:aws:lambda:${region}:aws:microvm-image:al2023-1",
+		"nested":       "${baseImageArn}/versions",
+		"plain":        "no placeholders",
+	}
+	resolveVars(vars)
+	if got, want := vars["baseImageArn"], "arn:aws:lambda:eu-west-1:aws:microvm-image:al2023-1"; got != want {
+		t.Errorf("baseImageArn %q, want %q", got, want)
+	}
+	if got, want := vars["nested"], "arn:aws:lambda:eu-west-1:aws:microvm-image:al2023-1/versions"; got != want {
+		t.Errorf("nested %q, want %q", got, want)
+	}
+	if vars["plain"] != "no placeholders" {
+		t.Errorf("plain %q", vars["plain"])
+	}
+}
+
+// A cycle must stop rather than spin.
+func TestResolveVarsTerminatesOnCycle(t *testing.T) {
+	vars := map[string]string{"a": "${b}", "b": "${a}"}
+	done := make(chan struct{})
+	go func() { resolveVars(vars); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("resolveVars did not terminate on a cycle")
+	}
+}
+
+// Lists that accumulate across an account's history cannot be compared by
+// value, but the members a client reads still must be checked.
+func TestMatchItemShape(t *testing.T) {
+	const body = `{"items":[
+		{"imageArn":"a","imageVersion":"1.0","microvmId":"microvm-1","startedAt":1,"state":"RUNNING"},
+		{"imageArn":"b","imageVersion":"1.0","microvmId":"microvm-2","startedAt":2,"state":"TERMINATED"}
+	],"nextToken":null}`
+	full := ItemShape{Path: "items", Required: []string{
+		"imageArn", "imageVersion", "microvmId", "startedAt", "state"}, Exact: true, MinItems: 1}
+
+	if detail, ok := matchItemShape(full, []byte(body)); !ok {
+		t.Errorf("well-formed list rejected: %s", detail)
+	}
+
+	// A sparse item — the commonest emulator divergence there is.
+	sparse := `{"items":[{"microvmId":"microvm-1","state":"RUNNING"}]}`
+	detail, ok := matchItemShape(full, []byte(sparse))
+	if ok {
+		t.Error("sparse item accepted")
+	} else if !strings.Contains(detail, "missing") {
+		t.Errorf("detail %q", detail)
+	}
+
+	// An over-full item is a divergence too, when Exact is set.
+	extra := `{"items":[{"imageArn":"a","imageVersion":"1.0","microvmId":"m","startedAt":1,"state":"RUNNING","endpoint":"x"}]}`
+	if detail, ok := matchItemShape(full, []byte(extra)); ok {
+		t.Error("over-full item accepted under Exact")
+	} else if !strings.Contains(detail, "endpoint") {
+		t.Errorf("detail %q", detail)
+	}
+	loose := full
+	loose.Exact = false
+	if detail, ok := matchItemShape(loose, []byte(extra)); !ok {
+		t.Errorf("over-full item rejected without Exact: %s", detail)
+	}
+
+	// An empty list would satisfy every member check vacuously.
+	if _, ok := matchItemShape(full, []byte(`{"items":[]}`)); ok {
+		t.Error("empty list accepted despite minItems")
+	}
+	empty := full
+	empty.MinItems = 0
+	if _, ok := matchItemShape(empty, []byte(`{"items":[]}`)); !ok {
+		t.Error("empty list rejected with minItems 0")
+	}
+
+	for _, bad := range []string{`{"other":[]}`, `{"items":{}}`, `not json`} {
+		if _, ok := matchItemShape(full, []byte(bad)); ok {
+			t.Errorf("accepted malformed body %s", bad)
+		}
+	}
+}
+
 func TestNormalize(t *testing.T) {
 	in := []byte(`{"arn":"arn:aws:lambda:eu-west-1:123456789012:microvm:abc","authToken":"s3cret","when":"2026-07-29T10:00:00.123Z"}`)
 	var doc map[string]any
@@ -212,6 +432,58 @@ func TestNormalize(t *testing.T) {
 	}
 	if doc["when"] != "TIMESTAMP" {
 		t.Errorf("timestamp: %v", doc["when"])
+	}
+}
+
+// A live recording and an emulator response must land on the same string for
+// the values neither side can agree on by construction: generated resource
+// ids, and the region baked into the per-VM endpoint hostname.
+func TestNormalizeShortIDsAndRegion(t *testing.T) {
+	for _, tc := range []struct {
+		name, live, emulated string
+	}{
+		{"security group", `{"v":"sg-f0e6979f"}`, `{"v":"sg-00000000000000001"}`},
+		{"subnet", `{"v":"subnet-15c2f37d"}`, `{"v":"subnet-00000000000000001"}`},
+		{"connector raw id", `{"v":"nc-8f14e45fceea167a"}`, `{"v":"nc-99e2dfd679d24b399"}`},
+		// Fixtures on disk were normalized when written, so a live connector
+		// id already reads nc-UUID there.
+		{"connector recorded as UUID", `{"v":"nc-UUID"}`, `{"v":"nc-99e2dfd679d24b399"}`},
+		{"endpoint region", `{"v":"x.lambda-microvm.us-east-2.on.aws"}`, `{"v":"x.lambda-microvm.us-east-1.on.aws"}`},
+		// Recorded in one hour, replayed in another: without this the step
+		// passes or fails by wall clock.
+		{"version state time bucket", `{"v":"SUCCESSFUL#26073006"}`, `{"v":"SUCCESSFUL#26073018"}`},
+		// A uuid whose final twelve characters are all decimal must still
+		// redact as a uuid, not get its tail eaten by the account rule.
+		{"all-digit uuid tail", `{"v":"microvm-cf50c1ff-04ac-4668-afd9-1a2b3c4d5e6f"}`,
+			`{"v":"microvm-cf50c1ff-04ac-4668-afd9-123456789012"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got, want := string(Normalize([]byte(tc.emulated))), string(Normalize([]byte(tc.live))); got != want {
+				t.Errorf("emulated normalized to %s, live to %s", got, want)
+			}
+		})
+	}
+}
+
+// Redaction must not swallow the values a conformance run exists to compare.
+func TestNormalizeKeepsMeaningfulValues(t *testing.T) {
+	in := []byte(`{"name":"m80-conf-image","state":"CREATING","version":"1.0","base":"al2023-1","uri":"s3://m80-conformance-123456789012-use2/code.zip","bucket":"SUCCESSFUL#26073006"}`)
+	var doc map[string]any
+	if err := json.Unmarshal(Normalize(in), &doc); err != nil {
+		t.Fatal(err)
+	}
+	for k, want := range map[string]string{
+		"name":    "m80-conf-image",
+		"state":   "CREATING",
+		"version": "1.0",
+		"base":    "al2023-1",
+		"uri":     "s3://m80-conformance-ACCOUNT-use2/code.zip",
+		// The state half of a bucket survives; only its clock half goes.
+		"bucket": "SUCCESSFUL#TIMESTAMP",
+	} {
+		if doc[k] != want {
+			t.Errorf("%s: got %v, want %v", k, doc[k], want)
+		}
 	}
 }
 

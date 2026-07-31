@@ -1,0 +1,3 @@
+{
+  "message": "Shell access requires SHELL_INGRESS network connector to be configured on the MicroVM."
+}

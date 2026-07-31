@@ -1,21 +1,29 @@
 {
   "id": "managed-images",
-  "params": { "managedImageId": "al2023-1" },
-  "tags": ["documented-only"],
+  "tags": [
+    "documented-only"
+  ],
   "steps": [
     {
       "name": "list",
       "operation": "ListManagedMicrovmImages",
       "method": "GET",
       "path": "/2025-09-09/managed-microvm-images",
-      "expect": { "status": 200 }
+      "expect": {
+        "status": 200
+      },
+      "capture": {
+        "managedImageArn": "items.0.imageArn"
+      }
     },
     {
       "name": "list-versions",
       "operation": "ListManagedMicrovmImageVersions",
       "method": "GET",
-      "path": "/2025-09-09/managed-microvm-images/${managedImageId}/versions",
-      "expect": { "status": 200 }
+      "path": "/2025-09-09/managed-microvm-images/${managedImageArn}/versions",
+      "expect": {
+        "status": 200
+      }
     }
   ]
 }

@@ -1,0 +1,24 @@
+{
+  "egressNetworkConnectors": [
+    "arn:aws:lambda:REGION:aws:network-connector:aws-network-connector:INTERNET_EGRESS"
+  ],
+  "endpoint": "UUID.lambda-microvm.REGION.on.aws",
+  "executionRoleArn": null,
+  "idlePolicy": {
+    "autoResumeEnabled": false,
+    "maxIdleDurationSeconds": 900,
+    "suspendedDurationSeconds": 1800
+  },
+  "imageArn": "arn:aws:lambda:REGION:ACCOUNT:microvm-image:m80-conf-suspend-image",
+  "imageVersion": "1.0",
+  "ingressNetworkConnectors": [
+    "arn:aws:lambda:REGION:aws:network-connector:aws-network-connector:HTTP_INGRESS"
+  ],
+  "maximumDurationInSeconds": 28800,
+  "microvmId": "microvm-UUID",
+  "startedAt": "TIMESTAMP",
+  "state": "SUSPENDED",
+  "stateReason": null,
+  "terminatedAt": null,
+  "terminationReasonCode": null
+}

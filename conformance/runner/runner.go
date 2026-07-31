@@ -20,6 +20,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 )
 
+// defaultAccount is m80's own account id, twelve digits so the normalizer
+// flattens it the same way it flattens a real one.
+const defaultAccount = "000000000000"
+
 type Scenario struct {
 	ID string `json:"id"`
 	// Params are template defaults so scenarios run against an emulator
@@ -56,6 +60,30 @@ type Expect struct {
 	ErrorType      string          `json:"errorType,omitempty"`
 	ErrorTypeOneOf []string        `json:"errorTypeOneOf,omitempty"`
 	BodyMatch      json.RawMessage `json:"bodyMatch,omitempty"`
+	ItemShape      *ItemShape      `json:"itemShape,omitempty"`
+}
+
+// ItemShape checks the members of every element of a list, without checking
+// their values.
+//
+// Some collections accumulate across an account's whole history — terminated
+// VMs are listed apparently forever — so a recorded list response is a
+// photograph of one account at one moment and can never equal a fresh
+// target's. Dropping those steps to a bare status check would lose the part
+// that actually matters, which is whether the target returns the members a
+// client reads. This checks exactly that part.
+type ItemShape struct {
+	// Path is the dot-path to the array, e.g. "items".
+	Path string `json:"path"`
+	// Members every element must carry.
+	Required []string `json:"required"`
+	// Exact rejects members outside Required as well as missing ones. Sparse
+	// bodies and over-full ones are both real divergences, and an emulator
+	// returning half the members of a summary is the commonest of all.
+	Exact bool `json:"exact,omitempty"`
+	// MinItems guards against a target that returns an empty list and
+	// vacuously satisfies every member check.
+	MinItems int `json:"minItems,omitempty"`
 }
 
 type Outcome string
@@ -84,6 +112,17 @@ type Config struct {
 	FixturesDir string
 	TagFilter   []string // scenario runs if it carries every listed tag
 	Record      bool
+	// MaxPollSec caps every until timeout. Case timeouts are sized for real
+	// AWS, where a build legitimately takes 45 minutes; against an emulator
+	// the same numbers mean a state the target does not model burns its full
+	// timeout before the step fails. Zero keeps the case values, which is
+	// what a recording run needs.
+	MaxPollSec float64
+	// Tier and Tiers select how strictly fixtures are compared. Zero values
+	// mean full equality, which is what a recording run and m80's own runs
+	// want.
+	Tier        Tier
+	Tiers       *Tiers
 	Params      map[string]string
 	Credentials aws.Credentials
 	HTTPClient  *http.Client
@@ -165,12 +204,31 @@ func (r *Runner) Run(scenarios []Scenario) []StepResult {
 
 func (r *Runner) runScenario(s Scenario) []StepResult {
 	vars := map[string]string{}
+	// region is built in, so a case can spell an ARN once and have it follow
+	// whatever region the run signs for. Hardcoding a region in a param made
+	// every case silently wrong against any other one — the emulator's
+	// region-scoped catalog rejects a base image from elsewhere, correctly.
+	vars["region"] = r.cfg.Region
+	// account is built in for the same reason as region. A case that probes
+	// a "missing" resource must name one in the caller's own account: an ARN
+	// carrying the 123456789012 placeholder is a foreign account, and live
+	// AWS answers that with 403 AccessDenied — correctly, since cross-account
+	// access needs a resource-based policy no matter how much admin the
+	// caller holds. The default is m80's own account so emulator runs need no
+	// flag; recording runs pass -param account=<real>.
+	vars["account"] = defaultAccount
+	for k, v := range r.cfg.Params {
+		if k == "account" || k == "region" {
+			vars[k] = v
+		}
+	}
 	for k, v := range s.Params {
 		vars[k] = v
 	}
 	for k, v := range r.cfg.Params {
 		vars[k] = v
 	}
+	resolveVars(vars)
 	var results []StepResult
 	failed := false
 	for _, st := range s.Steps {
@@ -195,15 +253,27 @@ func (r *Runner) runStep(s Scenario, st Step, vars map[string]string) (Outcome, 
 	deadline := time.Now().Add(time.Duration(1) * time.Second)
 	interval := time.Duration(0)
 	if st.Until != nil {
-		if st.Until.TimeoutSec <= 0 {
-			st.Until.TimeoutSec = 30
+		// Locals, not writes back through the pointer: st.Until is shared
+		// with the loaded scenario.
+		timeoutSec, intervalSec := st.Until.TimeoutSec, st.Until.IntervalSec
+		if timeoutSec <= 0 {
+			timeoutSec = 30
 		}
-		if st.Until.IntervalSec <= 0 {
-			st.Until.IntervalSec = 1
+		if intervalSec <= 0 {
+			intervalSec = 1
 		}
-		deadline = time.Now().Add(time.Duration(st.Until.TimeoutSec * float64(time.Second)))
-		interval = time.Duration(st.Until.IntervalSec * float64(time.Second))
+		if r.cfg.MaxPollSec > 0 && timeoutSec > r.cfg.MaxPollSec {
+			timeoutSec = r.cfg.MaxPollSec
+		}
+		deadline = time.Now().Add(time.Duration(timeoutSec * float64(time.Second)))
+		interval = time.Duration(intervalSec * float64(time.Second))
 	}
+
+	// Distinct values the poll passes through, in order. Only the settled
+	// response is kept as a fixture, so without this the transition order —
+	// the thing a live recording run is uniquely able to answer — is thrown
+	// away every time.
+	var observed []string
 
 	for {
 		status, body, errType, err := r.request(st, vars)
@@ -216,6 +286,9 @@ func (r *Runner) runStep(s Scenario, st Step, vars map[string]string) (Outcome, 
 
 		if st.Until != nil {
 			got, _ := dotPath(body, st.Until.Path)
+			if len(observed) == 0 || observed[len(observed)-1] != got {
+				observed = append(observed, got)
+			}
 			if got != st.Until.Equals {
 				if time.Now().After(deadline) {
 					return Fail, fmt.Sprintf("until %s=%q not reached, last %q", st.Until.Path, st.Until.Equals, got), false
@@ -225,7 +298,7 @@ func (r *Runner) runStep(s Scenario, st Step, vars map[string]string) (Outcome, 
 			}
 		}
 
-		outcome, detail, fixture := r.check(s, st, status, body, errType)
+		outcome, detail, fixture := r.check(s, st, status, body, errType, observed)
 		if outcome == Pass {
 			r.captureVars(st, body, vars)
 		}
@@ -279,7 +352,7 @@ func errorType(h http.Header, body []byte) string {
 	return t
 }
 
-func (r *Runner) check(s Scenario, st Step, status int, body []byte, errType string) (Outcome, string, bool) {
+func (r *Runner) check(s Scenario, st Step, status int, body []byte, errType string, observed []string) (Outcome, string, bool) {
 	fixPath := filepath.Join(r.cfg.FixturesDir, s.ID, st.Name+".json")
 
 	if r.cfg.Record {
@@ -287,6 +360,12 @@ func (r *Runner) check(s Scenario, st Step, status int, body []byte, errType str
 			return Fail, fmt.Sprintf("recording aborted: status %d, want %d: %s", status, st.Expect.Status, truncate(body)), false
 		}
 		if err := writeFixture(fixPath, body); err != nil {
+			return Errored, err.Error(), false
+		}
+		// The body alone loses the wire facts error mapping needs — status
+		// code and the modeled error type ride the headers. Sidecar them,
+		// along with the states the poll walked through to get here.
+		if err := writeMeta(fixPath, status, errType, observed); err != nil {
 			return Errored, err.Error(), false
 		}
 		return Pass, "recorded", true
@@ -315,10 +394,25 @@ func (r *Runner) check(s Scenario, st Step, status int, body []byte, errType str
 			return Fail, detail, false
 		}
 	}
+	if st.Expect.ItemShape != nil {
+		if detail, ok := matchItemShape(*st.Expect.ItemShape, body); !ok {
+			return Fail, detail, false
+		}
+	}
 
-	// A fixture, when present, is the strongest check: full normalized equality.
+	// A fixture, when present, is the strongest check: full normalized equality,
+	// plus the recorded status and error type when a meta sidecar exists.
 	if raw, err := os.ReadFile(fixPath); err == nil {
-		want, got := Normalize(raw), Normalize(body)
+		if meta, err := readMeta(fixPath); err == nil {
+			if meta.Status != 0 && status != meta.Status {
+				return Fail, fmt.Sprintf("status %d, recorded %d", status, meta.Status), true
+			}
+			if meta.ErrorType != errType {
+				return Fail, fmt.Sprintf("error type %q, recorded %q", errType, meta.ErrorType), true
+			}
+		}
+		want := r.cfg.Tiers.ApplyTier(Normalize(raw), r.cfg.Tier)
+		got := r.cfg.Tiers.ApplyTier(Normalize(body), r.cfg.Tier)
 		if !jsonEqual(want, got) {
 			return Fail, "response diverges from fixture " + fixPath, true
 		}
@@ -327,10 +421,133 @@ func (r *Runner) check(s Scenario, st Step, status int, body []byte, errType str
 	return Pass, "", false
 }
 
+type fixtureMeta struct {
+	Status    int    `json:"status"`
+	ErrorType string `json:"errorType,omitempty"`
+	// ObservedStates is recorded truth, not an assertion. An emulator that
+	// settles instantly walks a shorter path than the live service and is
+	// still conformant on every observable endpoint state; asserting this
+	// would fail floci by design. It exists so implementers can read the
+	// real transition order off a recording.
+	ObservedStates []string `json:"observedStates,omitempty"`
+}
+
+func metaPath(fixPath string) string {
+	return strings.TrimSuffix(fixPath, ".json") + ".meta.json"
+}
+
+func writeMeta(fixPath string, status int, errType string, observed []string) error {
+	// A single observation is just the settled state the fixture already
+	// shows — only a genuine transition is worth recording.
+	if len(observed) < 2 {
+		observed = nil
+	}
+	raw, err := json.MarshalIndent(fixtureMeta{Status: status, ErrorType: errType, ObservedStates: observed}, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(metaPath(fixPath), append(raw, '\n'), 0o644)
+}
+
+func readMeta(fixPath string) (fixtureMeta, error) {
+	var meta fixtureMeta
+	raw, err := os.ReadFile(metaPath(fixPath))
+	if err != nil {
+		return meta, err
+	}
+	err = json.Unmarshal(raw, &meta)
+	return meta, err
+}
+
 func (r *Runner) captureVars(st Step, body []byte, vars map[string]string) {
 	for name, path := range st.Capture {
 		if v, ok := dotPath(body, path); ok {
 			vars[name] = v
+		}
+	}
+}
+
+// matchItemShape checks that every element of a list carries the members a
+// client reads, without checking their values.
+func matchItemShape(shape ItemShape, body []byte) (string, bool) {
+	var doc any
+	if err := json.Unmarshal(body, &doc); err != nil {
+		return "item shape: response is not JSON", false
+	}
+	node := doc
+	if shape.Path != "" {
+		for _, seg := range strings.Split(shape.Path, ".") {
+			m, ok := node.(map[string]any)
+			if !ok {
+				return "item shape: " + shape.Path + " is not reachable", false
+			}
+			node, ok = m[seg]
+			if !ok {
+				return "item shape: response has no " + shape.Path, false
+			}
+		}
+	}
+	items, ok := node.([]any)
+	if !ok {
+		return "item shape: " + shape.Path + " is not a list", false
+	}
+	if len(items) < shape.MinItems {
+		return fmt.Sprintf("item shape: %d items, want at least %d", len(items), shape.MinItems), false
+	}
+
+	want := map[string]bool{}
+	for _, k := range shape.Required {
+		want[k] = true
+	}
+	for i, raw := range items {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			return fmt.Sprintf("item shape: item %d is not an object", i), false
+		}
+		var missing []string
+		for k := range want {
+			if _, present := item[k]; !present {
+				missing = append(missing, k)
+			}
+		}
+		sort.Strings(missing)
+		if len(missing) > 0 {
+			return fmt.Sprintf("item shape: item %d is missing %v", i, missing), false
+		}
+		if shape.Exact {
+			var extra []string
+			for k := range item {
+				if !want[k] {
+					extra = append(extra, k)
+				}
+			}
+			sort.Strings(extra)
+			if len(extra) > 0 {
+				return fmt.Sprintf("item shape: item %d has unexpected %v", i, extra), false
+			}
+		}
+	}
+	return "", true
+}
+
+// resolveVars lets one param reference another, so a case can build an ARN
+// out of ${region} instead of pinning one. Iterated rather than recursive:
+// a couple of passes covers any nesting a case plausibly has, and a cycle
+// stops instead of hanging.
+func resolveVars(vars map[string]string) {
+	for range 5 {
+		changed := false
+		for k, v := range vars {
+			if !strings.Contains(v, "${") {
+				continue
+			}
+			if next := substitute(v, vars); next != v {
+				vars[k] = next
+				changed = true
+			}
+		}
+		if !changed {
+			return
 		}
 	}
 }

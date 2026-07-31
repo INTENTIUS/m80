@@ -40,9 +40,49 @@ Corrections to earlier guesses. The create verb is `RunMicrovm`, not `CreateMicr
 
 `CreateNetworkConnector`, `GetNetworkConnector`, `ListNetworkConnectors`, `UpdateNetworkConnector`, `DeleteNetworkConnector` under `/2026-04-04/network-connectors`. The model names the compute resource type generically (`ComputeResourceType: MicroVm`), which reads as connectors being shared plumbing for future Lambda compute kinds.
 
+## Recorded corrections (2026-07-29, live service)
+
+Facts the models could not state, learned during the fixture-recording runs.
+
+| Fact | Detail |
+|------|--------|
+| Identifiers are ARNs | Image URI paths take the full image ARN as `{imageIdentifier}`; a bare name gets `400 {"message":"Invalid ARN format: …"}`. Raw colons in the path are accepted unencoded |
+| VM ids | `microvm-<uuid>`, e.g. `microvm-bba53bbe-…`; VM routes take this id, not an ARN |
+| Connector `ClientToken` is required | `400 {"message":"ClientToken is a required field"}` — the Smithy model marks it optional. A model-vs-service divergence, exactly what the freshness watch exists to catch |
+| `allowedPorts` union serialization | `PortSpecification` is a union whose `allPorts` member targets `Unit`: serialize `{"allPorts": {}}`. A boolean gets `400 {"Message":"Expected null"}` |
+| Image delete is asynchronous | `DeleteMicrovmImage` returns `200 {"imageIdentifier": …, "state": "DELETING"}` and the image lingers listable until the delete completes; a create reusing the name during that window gets `400 "already exists"` |
+| Delete refused mid-build | Deleting an image whose first build is still running gets `400 {"message":"Cannot delete MicroVM image in its current state: …"}` |
+| Create response is richer than the models | Live `CreateMicrovmImage` returns `id`, `buildPhaseOverrides`, `roleConfiguration` — fields absent from both the vendored and SDK models |
+| `UpdateMicrovmImage` (PUT) is full-replace | Omitting `baseImageArn`/`codeArtifact` gets per-member validation errors; the PUT body must carry the full required representation, not a patch |
+| `idlePolicy.autoResumeEnabled` is required | Whenever `idlePolicy` is present on `RunMicrovm` — the model marks no member of `IdlePolicy` required |
+| `SHELL_INGRESS` connectors exist | Shell auth tokens require "SHELL_INGRESS network connector to be configured on the MicroVM" — a connector type entirely absent from the model's `NetworkConnectorType` enum (`VPC_EGRESS` only). The suite records the without-ingress 400 as truth; the full shell flow is future work |
+| `AssociatedComputeResourceTypes` is required | For VPC_EGRESS connectors — the model marks it optional. chant's `MicrovmApp` already emits it |
+| `NetworkProtocol` is required | Also for VPC_EGRESS connectors, also modeled optional — "cannot be null or empty". `MicrovmApp` emits it too |
+| Image update is asynchronous | The PUT moves the image through `UPDATING`; a version PATCH during that window gets `409 "MicroVM Image is already in state: UPDATING"` |
+| Image update mints a new version | The full-replace PUT triggers a rebuild: a second version ("2.0") appears after update, exactly as a rebuild-by-create does |
+| The operator role is validated live at create | Connector creation assumes the role and calls EC2 immediately: a role lacking the documented ENI grants gets `400 "Encountered unauthorized operation while calling EC2 due to invalid ConnectorOperatorRole permissions"`. chant `MicrovmApp`'s operator-role shapes are the working reference |
+| Delete refuses while VMs run | `400 "Cannot delete microvm image with running microvms."` — and since terminate is itself async, a delete right after terminate races the TERMINATING window |
+| `OperatorRole` is required | The fourth modeled-optional-but-enforced connector member: `400 "NetworkConnectorOperatorRole is required for VPC_EGRESS connector type"` |
+| Version delete is asynchronous too | An image delete racing a draining version delete gets `400 "Cannot delete MicroVM image in its current state"`; once versions drain, the same delete succeeds |
+| Defaults on running VMs | Every VM carries managed default connectors (`INTERNET_EGRESS` egress, `HTTP_INGRESS` ingress — the latter another unmodeled connector type), `maximumDurationInSeconds: 28800`, endpoint `<uuid>.lambda-microvm.<region>.on.aws`, and `stateReason: "Success."` once terminated |
+
+## Recorded corrections (2026-07-30, second session)
+
+| Fact | Detail |
+|------|--------|
+| A suspended VM still issues auth tokens | `CreateMicrovmAuthToken` against a `SUSPENDED` VM returns `200` with a full `X-aws-proxy-auth` token, not a conflict. Tokens are therefore obtainable before a resume, which is the order a client wanting to wake a VM by calling it would need |
+| `ResourceNotFoundException` carries `resourceId` and `resourceType` | Both `null` in practice on a missing VM. Absent from the earlier recording only because that probe hit a gateway `502` on a malformed id |
+| Resume skips `PENDING` | See [lifecycle.md](lifecycle.md). The recorded transition sequences now live there |
+| `ServiceQuotaExceededException` answers **HTTP 402** | Payment Required, not the 429 or 400 anyone would guess. The model names the error and says nothing about its status, so this is only knowable by provoking it |
+| The binding limit is memory, not VM count | `402 "The base maximum allocated memory limit has been reached for this account."` Six concurrent `RunMicrovm` on a fresh account yielded two running VMs and four rejections. At the 2048 MiB default tier that puts the account's base ceiling near 4096 MiB of allocated memory, not a VM count |
+| Quota errors carry empty detail | `quotaCode`, `serviceCode`, `resourceId`, and `resourceType` are all present and all `null`. A client cannot branch on which quota was hit; only the message says |
+| Concurrency throttling is masked | The burst never produced `ThrottlingException` or any `ThrottleReason`, including `ConcurrentSnapshotCreateLimitExceeded`. The memory ceiling fires first and hides it. KubeMicroVM's QuotaGuard will meet 402 long before it meets a throttle on a default account |
+
 ## Error and throttle taxonomy
 
-Also in the model, no recording run needed for shapes. `AccessDeniedException`, `ConflictException`, `ResourceConflictException`, `ResourceNotFoundException`, `InvalidParameterValueException`, `ServiceQuotaExceededException`, `ThrottlingException`, `TooManyRequestsException`, `InternalServerException`, `ServiceException`. `ThrottleReason` enumerates six reasons including `ConcurrentSnapshotCreateLimitExceeded`, which is the one QuotaGuard testing cares about. What the model cannot say is which operation returns which error when, and that mapping stays a conformance-recording target.
+Also in the model, no recording run needed for shapes. `AccessDeniedException`, `ConflictException`, `ResourceConflictException`, `ResourceNotFoundException`, `InvalidParameterValueException`, `ServiceQuotaExceededException`, `ThrottlingException`, `TooManyRequestsException`, `InternalServerException`, `ServiceException`. `ThrottleReason` enumerates six reasons including `ConcurrentSnapshotCreateLimitExceeded`, which is the one QuotaGuard testing cares about.
+
+What the model cannot say is which operation returns which error when, and with what status. Two of those are now recorded. A terminal-state mutation is `400 ValidationException`, not either modeled conflict type. Exhausting capacity is `402 ServiceQuotaExceededException` against an account memory ceiling, reached at six concurrent `RunMicrovm` calls — and reached *instead of* any throttle, so the six `ThrottleReason` values remain unobserved and are implemented from the model alone. Provoking them would need an account whose memory quota is raised well above its concurrency limit, which is a support-ticket exercise rather than a recording one.
 
 ## Protocol notes
 

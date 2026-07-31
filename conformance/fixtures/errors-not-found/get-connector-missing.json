@@ -1,0 +1,3 @@
+{
+  "Message": "Network connector not found for: arn:aws:lambda:REGION:ACCOUNT:network-connector:nc-m80-does-not-exist"
+}

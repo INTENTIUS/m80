@@ -1,0 +1,10 @@
+{
+  "items": [
+    {
+      "createdAt": "TIMESTAMP",
+      "imageArn": "arn:aws:lambda:REGION:aws:microvm-image:al2023-1",
+      "updatedAt": "TIMESTAMP"
+    }
+  ],
+  "nextToken": null
+}

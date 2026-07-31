@@ -2,7 +2,8 @@
   "id": "connectors",
   "params": {
     "subnetId": "subnet-00000000000000001",
-    "securityGroupId": "sg-00000000000000001"
+    "securityGroupId": "sg-00000000000000001",
+    "operatorRoleArn": "arn:aws:iam::123456789012:role/m80-conformance-connector-operator"
   },
   "tags": [
     "documented-only",
@@ -23,9 +24,15 @@
             ],
             "SecurityGroupIds": [
               "${securityGroupId}"
-            ]
+            ],
+            "AssociatedComputeResourceTypes": [
+              "MicroVm"
+            ],
+            "NetworkProtocol": "IPv4"
           }
-        }
+        },
+        "ClientToken": "m80-conformance-create-token-01",
+        "OperatorRole": "${operatorRoleArn}"
       },
       "expect": {
         "status": 202,
@@ -74,9 +81,15 @@
             ],
             "SecurityGroupIds": [
               "${securityGroupId}"
-            ]
+            ],
+            "AssociatedComputeResourceTypes": [
+              "MicroVm"
+            ],
+            "NetworkProtocol": "IPv4"
           }
-        }
+        },
+        "ClientToken": "m80-conformance-update-token-01",
+        "OperatorRole": "${operatorRoleArn}"
       },
       "expect": {
         "status": 202

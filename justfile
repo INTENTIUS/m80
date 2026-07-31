@@ -26,6 +26,10 @@ race:
 lint:
     golangci-lint run {{pkg}}
 
+# Check the operation inventory against the upstream service models.
+model-watch:
+    go run ./conformance/cmd/modelwatch
+
 # gofmt check, as CI runs it.
 fmt-check:
     @out=$(gofmt -l .); if [ -n "$out" ]; then echo "not gofmt-clean:"; echo "$out"; exit 1; fi

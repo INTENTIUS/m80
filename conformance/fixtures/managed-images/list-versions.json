@@ -1,0 +1,19 @@
+{
+  "items": [
+    {
+      "createdAt": "TIMESTAMP",
+      "imageArn": "arn:aws:lambda:REGION:aws:microvm-image:al2023-1",
+      "imageVersion": "1",
+      "status": "AVAILABLE",
+      "updatedAt": "TIMESTAMP"
+    },
+    {
+      "createdAt": "TIMESTAMP",
+      "imageArn": "arn:aws:lambda:REGION:aws:microvm-image:al2023-1",
+      "imageVersion": "0",
+      "status": "AVAILABLE",
+      "updatedAt": "TIMESTAMP"
+    }
+  ],
+  "nextToken": null
+}

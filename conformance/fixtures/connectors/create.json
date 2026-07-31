@@ -1,0 +1,21 @@
+{
+  "Arn": "arn:aws:lambda:REGION:ACCOUNT:network-connector:nc-UUID",
+  "Configuration": {
+    "VpcEgressConfiguration": {
+      "AssociatedComputeResourceTypes": [
+        "MicroVm"
+      ],
+      "NetworkProtocol": "IPv4",
+      "SecurityGroupIds": [
+        "sg-f0e6979f"
+      ],
+      "SubnetIds": [
+        "subnet-15c2f37d"
+      ]
+    }
+  },
+  "Id": "nc-UUID",
+  "Name": "m80-conf-connector",
+  "OperatorRole": "arn:aws:iam::ACCOUNT:role/m80-conformance-connector-operator",
+  "State": "PENDING"
+}

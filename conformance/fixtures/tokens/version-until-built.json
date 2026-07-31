@@ -1,0 +1,31 @@
+{
+  "additionalOsCapabilities": null,
+  "baseImageArn": "arn:aws:lambda:REGION:aws:microvm-image:al2023-1",
+  "baseImageVersion": "1.0",
+  "buildRoleArn": "arn:aws:iam::ACCOUNT:role/m80-conformance-build",
+  "codeArtifact": {
+    "uri": "s3://m80-conformance-ACCOUNT-use2/code.zip"
+  },
+  "cpuConfigurations": null,
+  "createdAt": "TIMESTAMP",
+  "description": null,
+  "egressNetworkConnectors": [
+    "arn:aws:lambda:REGION:aws:network-connector:aws-network-connector:INTERNET_EGRESS"
+  ],
+  "environmentVariables": null,
+  "hooks": null,
+  "imageArn": "arn:aws:lambda:REGION:ACCOUNT:microvm-image:m80-conf-token-image",
+  "imageVersion": "1.0",
+  "logging": null,
+  "resources": [
+    {
+      "minimumMemoryInMiB": 2048
+    }
+  ],
+  "state": "SUCCESSFUL",
+  "stateReason": null,
+  "status": "ACTIVE",
+  "tags": null,
+  "updatedAt": "TIMESTAMP",
+  "versionStateTimeBucket": "SUCCESSFUL#26073005"
+}

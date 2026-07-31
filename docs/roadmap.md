@@ -6,11 +6,17 @@ This repo. Docs only, local only. Exits when the operation inventory is extracte
 
 ## M1 — Model extraction and suite skeleton
 
-Partially done 2026-07-29. The operation inventory (24 + 5 operations across two services), state enums, error shapes, and throttle reasons are extracted from KubeMicroVM's vendored models into [api-surface.md](api-surface.md) and [lifecycle.md](lifecycle.md). Remaining: cross-check against aws-sdk-go-v2's model for divergence, then write the conformance suite skeleton. No emulator code.
+Done 2026-07-29. The operation inventory (24 + 5 operations across two services), state enums, error shapes, and throttle reasons are extracted from KubeMicroVM's vendored models into [api-surface.md](api-surface.md) and [lifecycle.md](lifecycle.md). The aws-sdk-go-v2 cross-check found no divergence, and `conformance/cmd/modelwatch` now re-runs that check against both vendored models on a schedule. The suite skeleton covers all 29 operations. No emulator code.
 
 ## M2 — Fixture recording
 
-One budgeted run against the real service, now much smaller than first scoped since the model gave up shapes, enums, and error taxonomy for free. What only the live service can answer: transition order (does resume pass through `PENDING`), which operation returns which error when, suspended-endpoint and token behavior, the throttle envelope in practice. This run retires every remaining recording target in [lifecycle.md](lifecycle.md).
+Run 2026-07-29. All ten scenarios are fixture-backed and 19 recorded corrections landed in [api-surface.md](api-surface.md), including four connector members the models mark optional and the service enforces, two connector types absent from the model's enum, and the asynchronous delete and update windows.
+
+A second, smaller session on 2026-07-30 retired most of what the first left open. Transition order is recorded — resume goes straight back to `RUNNING` without passing through `PENDING`. A suspended VM does still issue auth tokens. `errors-not-found/get-vm-missing` re-recorded clean as `404 ResourceNotFoundException` once the case stopped probing a malformed id; the `502` it captured before survives as `.rejected-502`.
+
+The throttle probe ran too, as `conformance/cmd/throttleprobe`: six concurrent `RunMicrovm` calls, two admitted and four rejected with `402 ServiceQuotaExceededException` against an account memory ceiling. It answered a different question than the one asked — the memory quota fires before any concurrency throttle, so the six `ThrottleReason` values stay unobserved and m80 implements them from the model.
+
+One target remains. The endpoint probe, running or suspended, needs the runner to address a VM's own hostname rather than the control-plane endpoint, and is unexpressible until then.
 
 ## M3 — m80 itself
 
@@ -28,8 +34,8 @@ chant integration (`chant emulator up` capability, the kit's local tutorials), b
 
 The name is settled. m80, checked 2026-07-29. `intentius/m80` is free on GitHub and the existing m80-named repos are an iOS label library and CP/M-80 retrocomputing projects, no collision in this space. Prior working title was squib, dropped for colliding with a 953-star Ruby project.
 
-Whether the repo goes public at M3 or M4. The operator-proof number is the better launch, but earlier visibility might recruit codriverlabs as design partners.
+Endpoint behavior for running and suspended VMs. The token half is recorded; the endpoint half needs the runner to address a VM's own hostname, which it cannot do.
 
-Token and endpoint behavior for suspended VMs. Docs are silent, M2 records it.
+Whether `SUSPENDING` and `TERMINATING` are observable at all, or too brief to sample. m80 models them regardless, since a client polling faster than five seconds may well see them.
 
-Whether the vendored service model in KubeMicroVM is complete and current, or whether the SDK's own model diverges. Half answered, the vendored models parse clean and carry full shapes. The aws-sdk-go-v2 cross-check remains.
+Resolved: the repo went public 2026-07-30, ahead of the M3-or-M4 question. The vendored models parse clean, carry full shapes, and agree with aws-sdk-go-v2; `modelwatch` keeps that true. Token behavior for suspended VMs is recorded. The throttle probe's shape is settled — a small concurrent `RunMicrovm` burst.
