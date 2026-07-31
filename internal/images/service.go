@@ -24,6 +24,14 @@ type Service struct {
 	// a create from a runnable image.
 	BuildDelay time.Duration
 
+	// SnapshotQuota, when set, caps concurrent image builds. A build is a
+	// snapshot create, and ConcurrentSnapshotCreateLimitExceeded is the one
+	// ThrottleReason KubeMicroVM's QuotaGuard testing cares about. Optional,
+	// so the package still works standalone in its own tests.
+	SnapshotQuota interface {
+		AllowSnapshotCreate(inFlight int) bool
+	}
+
 	mu sync.Mutex
 	// failNext forces the next build to FAILED, the compensation-testing
 	// lever. Keyed by image name so one failing image does not poison a
@@ -315,4 +323,30 @@ func (s *Service) SetTags(region, arn string, tags map[string]string) bool {
 	defer s.mu.Unlock()
 	img.Tags = tags
 	return true
+}
+
+// MemoryMiB reports what a VM launched off this image allocates, for the
+// account memory ceiling (#15). A miss reports the default tier rather than
+// zero: a VM that cannot resolve its image never gets as far as the quota
+// check, and zero would silently make the ceiling unreachable.
+func (s *Service) MemoryMiB(region, identifier string) int {
+	img, ok := s.Get(region, identifier)
+	if !ok || img.MemoryMiB == 0 {
+		return DefaultMemoryMiB
+	}
+	return img.MemoryMiB
+}
+
+// BuildsInFlight counts versions still building, for the concurrent
+// snapshot-create cap.
+func (s *Service) BuildsInFlight(region string) int {
+	n := 0
+	for _, img := range s.List(region) {
+		for _, v := range img.Versions {
+			if v.State == BuildPending || v.State == BuildInProgress {
+				n++
+			}
+		}
+	}
+	return n
 }

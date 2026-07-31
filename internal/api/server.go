@@ -22,6 +22,13 @@ type Server struct {
 	// patterns cannot carry a wildcard, so it cannot be expressed as a route.
 	Intercept func(http.ResponseWriter, *http.Request) bool
 
+	// Gate is consulted before every operation handler, with the operation
+	// name, and reports whether it answered the request itself. Throttling
+	// (#15) uses it: a rate limit applies across the whole surface rather
+	// than inside any one resource package, and the throttle's wire shape
+	// depends on which service the operation belongs to.
+	Gate func(operation string, w http.ResponseWriter, r *http.Request) bool
+
 	mu       sync.RWMutex
 	handlers map[string]Handler // keyed by operation name
 	mux      *http.ServeMux
@@ -86,6 +93,12 @@ func (s *Server) dispatch(operation string) http.HandlerFunc {
 				"__type":  "NotImplemented",
 				"message": operation + " is routed but not implemented yet",
 			})
+			return
+		}
+		// The gate runs after the 501 check so an unimplemented operation
+		// still reports as unimplemented rather than as throttled, which the
+		// conformance runner distinguishes.
+		if s.Gate != nil && s.Gate(operation, w, r) {
 			return
 		}
 		h(w, r)
