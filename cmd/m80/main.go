@@ -20,6 +20,7 @@ import (
 	"github.com/intentius/m80"
 	"github.com/intentius/m80/internal/api"
 	"github.com/intentius/m80/internal/clock"
+	"github.com/intentius/m80/internal/connectors"
 	"github.com/intentius/m80/internal/images"
 	"github.com/intentius/m80/internal/managedimages"
 	"github.com/intentius/m80/internal/store"
@@ -73,6 +74,8 @@ func main() {
 		}
 		stub = raw
 	}
+	connectorSvc := connectors.NewService(clk, st, *buildDelay)
+	connectors.Register(srv, connectorSvc)
 	tokenSvc := tokens.NewService(clk)
 	tokens.Register(srv, tokenSvc, vmSvc)
 	// A VM's endpoint is a different host answered by the same process, so it
