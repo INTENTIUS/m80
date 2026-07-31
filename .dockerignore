@@ -1,0 +1,14 @@
+# The build needs the module and the Go source. Everything else only makes the
+# context bigger and the cache more fragile.
+#
+# .git is excluded deliberately: the build cannot derive a version from it, so
+# the release workflow has to pass one in and an unstamped image is obviously
+# "dev" rather than quietly wrong.
+.git
+.github
+site
+docs
+mkdocs.yml
+*.md
+Dockerfile
+.dockerignore

@@ -2,7 +2,39 @@
 
 A standalone, stateful local emulator of the AWS Lambda MicroVMs API. Like LocalStack, but for Lambda MicroVMs. The M-80 is the most famous firecracker there is, and m80 emulates a Firecracker-backed service.
 
-**Status: design phase. This repo is documentation only, no code yet.** The design documents below are the current deliverable; implementation starts at M3 on the [roadmap](docs/roadmap.md).
+**Status: all 29 operations implemented.** The conformance suite runs 71 checks against recorded fixtures with nothing skipped and nothing unimplemented. See the [roadmap](docs/roadmap.md).
+
+## Quick start
+
+```sh
+docker run --rm -p 4290:4290 ghcr.io/intentius/m80
+
+curl -s localhost:4290/_m80/health | jq '.coverage.implemented, .coverage.total'
+```
+
+Point any SDK at it with an endpoint override — m80 reads the region out of the sigv4 credential scope, so one instance serves every region and the credentials need not be real:
+
+```sh
+aws configure set aws_access_key_id test
+aws configure set aws_secret_access_key test
+
+aws --endpoint-url http://localhost:4290 --region us-east-2 \
+    lambda-microvms list-microvm-images
+```
+
+```go
+cfg, _ := config.LoadDefaultConfig(ctx,
+    config.WithRegion("us-east-2"),
+    config.WithBaseEndpoint("http://localhost:4290"))
+```
+
+Transitions run on an injected clock, so `-build-delay` decides how long a build takes to become runnable. Short for tests, longer for a demo where the intermediate states should be visible:
+
+```sh
+docker run --rm -p 4290:4290 ghcr.io/intentius/m80 -build-delay 300ms
+```
+
+Everything is in memory and nothing is written, so a restart is a clean account. m80 is stateful within a run — image names stay reserved through the async delete window, exactly as the real service does — so a suite that runs twice against one instance will fail the second time on `already exists`. That is fidelity, not a bug; restart between runs.
 
 m80 follows the pattern of [mudflaps](https://github.com/intentius/mudflaps) (Fly Machines) and [spritzer](https://github.com/intentius/spritzer) (Fly Sprites). A single static Go binary and distroless container that holds MicroVM images, VMs, tokens, and network connectors in memory, advances them through their lifecycle on an injected clock, and answers the real wire protocol so any SDK client works against it via endpoint override.
 

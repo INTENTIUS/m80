@@ -1,0 +1,206 @@
+name: Release
+
+# Tag-driven. The tag is the only input: it names the version, stamps the
+# binary, and tags the image.
+on:
+  push:
+    tags: ["v*"]
+  # Lets a maintainer rehearse the whole gate — including the conformance run
+  # against the real container — without cutting a release. Nothing publishes
+  # on this path.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Everything that can say no runs before anything that publishes. The
+  # conformance suite is the gate: an emulator that does not match its own
+  # recorded fixtures has no business being tagged.
+  verify:
+    name: Test and conformance
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            version="${GITHUB_REF_NAME}"
+          else
+            version="dev-${GITHUB_SHA::12}"
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "building ${version}"
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: gofmt
+        run: |
+          fmtout=$(gofmt -l .)
+          if [ -n "$fmtout" ]; then
+            echo "These files are not gofmt-clean:"
+            echo "$fmtout"
+            exit 1
+          fi
+
+      - name: Test with race
+        run: go test -race ./...
+
+      - name: Build the candidate
+        run: |
+          CGO_ENABLED=0 go build -trimpath \
+            -ldflags "-s -w -X github.com/intentius/m80.Version=${{ steps.version.outputs.version }}" \
+            -o m80 ./cmd/m80
+          ./m80 -version
+
+      # The candidate answers the suite before anything is published. m80 is
+      # stateful and reserves image names through the async delete window, so
+      # this instance is used once and thrown away.
+      - name: Conformance against the candidate
+        run: |
+          ./m80 -addr :4290 -build-delay 300ms &
+          for _ in $(seq 1 30); do
+            curl -sf http://localhost:4290/_m80/health >/dev/null && break
+            sleep 0.2
+          done
+          go run ./conformance/cmd/conformance \
+            -endpoint http://localhost:4290 -poll-timeout 20
+
+      # Coverage is a release note, not a gate: a suite that skipped half the
+      # surface could still be green.
+      - name: Report operation coverage
+        run: |
+          ./m80 -addr :4291 >/dev/null 2>&1 &
+          for _ in $(seq 1 30); do
+            curl -sf http://localhost:4291/_m80/health >/dev/null && break
+            sleep 0.2
+          done
+          curl -s http://localhost:4291/_m80/health | tee health.json
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          d = json.load(open("health.json"))["coverage"]
+          print(f"### Coverage\n\n`{d['implemented']}/{d['total']}` operations implemented.\n")
+          if d["notImplementedYet"]:
+              print("Not implemented: " + ", ".join(d["notImplementedYet"]))
+          PY
+
+  # Built from the same commit the gate ran on, and checked again as a real
+  # container before it is pushed. The acceptance for #16 is that
+  # `docker run ghcr.io/intentius/m80` serves the API, so that is what gets
+  # tested rather than the binary a second time.
+  image:
+    name: Image
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      # Load the native image locally first so the suite can run against a
+      # real container. Multi-arch cannot be --load, which is why this is a
+      # separate build from the push below; both use the same cache.
+      - name: Build amd64 image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          platforms: linux/amd64
+          build-args: VERSION=${{ needs.verify.outputs.version }}
+          tags: m80:candidate
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Conformance against the container
+        run: |
+          docker run -d --name m80 -p 4290:4290 m80:candidate -build-delay 300ms
+          for _ in $(seq 1 60); do
+            curl -sf http://localhost:4290/_m80/health >/dev/null && break
+            sleep 0.5
+          done
+          go run ./conformance/cmd/conformance \
+            -endpoint http://localhost:4290 -poll-timeout 20
+          docker rm -f m80
+
+      - name: Log in to GHCR
+        if: github.ref_type == 'tag'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push multi-arch
+        if: github.ref_type == 'tag'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          build-args: VERSION=${{ needs.verify.outputs.version }}
+          tags: |
+            ghcr.io/intentius/m80:${{ needs.verify.outputs.version }}
+            ghcr.io/intentius/m80:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  binaries:
+    name: Binaries and release
+    needs: [verify, image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.25"
+          cache: true
+
+      # Cross-compiling is free here: no cgo, no build tags, one binary per
+      # platform from the same source the gate ran against.
+      - name: Build
+        run: |
+          mkdir -p dist
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            os="${target%/*}"; arch="${target#*/}"
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath \
+              -ldflags "-s -w -X github.com/intentius/m80.Version=${{ needs.verify.outputs.version }}" \
+              -o "dist/m80_${os}_${arch}" ./cmd/m80
+          done
+          cd dist && sha256sum m80_* > checksums.txt && cat checksums.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: m80-binaries
+          path: dist/
+
+      - name: Publish release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "m80 ${GITHUB_REF_NAME}" \
+            --generate-notes \
+            dist/*
