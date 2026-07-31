@@ -141,6 +141,97 @@ func TestRunAgainstStub(t *testing.T) {
 	}
 }
 
+// An optional step's 501 must not take the rest of the scenario with it —
+// the case vm-suspend-resume is in, where CreateMicrovmAuthToken sat between
+// suspend and resume and hid ResumeMicrovm's coverage behind it.
+func TestOptionalUnimplementedStepDoesNotHaltScenario(t *testing.T) {
+	srv := stub()
+	defer srv.Close()
+	dir := t.TempDir()
+	writeScenario(t, dir, "30-optional.json", Scenario{
+		ID:   "optional-probe",
+		Tags: []string{"documented-only"},
+		Steps: []Step{
+			{
+				Name: "create", Operation: "CreateMicrovmImage",
+				Method: "POST", Path: "/2025-09-09/microvm-images",
+				Body:    json.RawMessage(`{"name":"img1"}`),
+				Expect:  Expect{Status: 201},
+				Capture: map[string]string{"imageName": "name"},
+			},
+			{
+				Name: "side-probe", Operation: "CreateMicrovmAuthToken",
+				Method: "POST", Path: "/2025-09-09/microvms/x/auth-token",
+				Optional: true,
+				Expect:   Expect{},
+			},
+			{
+				Name: "after-probe", Operation: "GetMicrovmImage",
+				Method: "GET", Path: "/2025-09-09/microvm-images/${imageName}",
+				Expect: Expect{Status: 200},
+			},
+		},
+	})
+
+	r := newTestRunner(t, srv.URL, dir, t.TempDir(), false, nil)
+	scenarios, err := r.LoadScenarios()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := outcomes(r.Run(scenarios))
+
+	want := map[string]Outcome{
+		"optional-probe/create":      Pass,
+		"optional-probe/side-probe":  Unimplemented,
+		"optional-probe/after-probe": Pass,
+	}
+	for k, w := range want {
+		if got[k] != w {
+			t.Errorf("%s: got %s, want %s", k, got[k], w)
+		}
+	}
+}
+
+// Optional exempts 501 and nothing else. A wrong answer means the state the
+// later steps assume is no longer trustworthy, so the scenario still halts.
+func TestOptionalStepStillHaltsOnFailure(t *testing.T) {
+	srv := stub()
+	defer srv.Close()
+	dir := t.TempDir()
+	writeScenario(t, dir, "31-optional-fail.json", Scenario{
+		ID:   "optional-fail",
+		Tags: []string{"documented-only"},
+		Steps: []Step{
+			{
+				Name: "wrong-answer", Operation: "GetMicrovmImage",
+				Method: "GET", Path: "/2025-09-09/microvm-images/img1",
+				Optional: true,
+				// The stub answers 200 CREATED; demanding 404 is a real fail.
+				Expect: Expect{Status: 404},
+			},
+			{
+				Name: "after", Operation: "GetMicrovmImage",
+				Method: "GET", Path: "/2025-09-09/microvm-images/img1",
+				Expect: Expect{Status: 200},
+			},
+		},
+	})
+
+	r := newTestRunner(t, srv.URL, dir, t.TempDir(), false, nil)
+	scenarios, err := r.LoadScenarios()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := outcomes(r.Run(scenarios))
+
+	if got["optional-fail/wrong-answer"] != Fail {
+		t.Errorf("wrong-answer: got %s, want fail", got["optional-fail/wrong-answer"])
+	}
+	if got["optional-fail/after"] != Skipped {
+		t.Errorf("after: got %s, want skipped — an optional step that fails still halts", got["optional-fail/after"])
+	}
+}
+
 func TestTagFilter(t *testing.T) {
 	srv := stub()
 	defer srv.Close()

@@ -109,6 +109,7 @@
     {
       "name": "auth-token-while-suspended",
       "operation": "CreateMicrovmAuthToken",
+      "optional": true,
       "method": "POST",
       "path": "/2025-09-09/microvms/${microvmId}/auth-token",
       "body": {

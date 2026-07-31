@@ -42,6 +42,20 @@ type Step struct {
 	Expect    Expect            `json:"expect"`
 	Capture   map[string]string `json:"capture,omitempty"`
 	Until     *Until            `json:"until,omitempty"`
+
+	// Optional marks a step whose operation is incidental to the scenario, so
+	// a 501 from it does not halt the rest. Without it a side probe wedged
+	// mid-scenario hides every step behind it: CreateMicrovmAuthToken sits
+	// between suspend and resume in vm-suspend-resume purely because that is
+	// where a live recording could observe it, and while it was unimplemented
+	// it took ResumeMicrovm's coverage down with it.
+	//
+	// It exempts Unimplemented only. A step that genuinely fails still halts
+	// the scenario however it is marked, because a wrong answer means the
+	// state the later steps assume is no longer trustworthy. A step carrying
+	// Capture should not be optional: the vars it would have set go missing
+	// and the failure resurfaces later, further from its cause.
+	Optional bool `json:"optional,omitempty"`
 }
 
 // Until turns a step into a poll: the request repeats until the dot-path in
@@ -241,7 +255,7 @@ func (r *Runner) runScenario(s Scenario) []StepResult {
 		}
 		outcome, detail, fixture := r.runStep(s, st, vars)
 		res.Outcome, res.Detail, res.Fixture = outcome, detail, fixture
-		if outcome != Pass {
+		if outcome != Pass && !(st.Optional && outcome == Unimplemented) {
 			failed = true
 		}
 		results = append(results, res)
