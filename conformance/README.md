@@ -52,6 +52,25 @@ Some collections grow with an account's whole history — terminated VMs stay in
 
 `exact` rejects members outside `required` as well as missing ones, because sparse bodies and over-full ones are both real divergences — an emulator returning half the members of a summary is the commonest of all. `minItems` guards against a target that returns an empty list and satisfies every member check vacuously.
 
+## Side probes in the middle of a scenario
+
+A failing step halts the rest of its scenario, because whatever the later steps assume about the target's state is no longer trustworthy. An unimplemented one halted it too, which was wrong for a step nothing downstream depends on.
+
+`CreateMicrovmAuthToken` sits between `suspend` and `resume` in `vm-suspend-resume` for a good reason — that is the only place a live recording can observe a token issued against a suspended VM — but while it was unimplemented it took `ResumeMicrovm` off the coverage report with it, and the operation had nothing wrong with it.
+
+`"optional": true` on a step exempts it from halting the scenario **when the target answers 501**:
+
+```json
+{
+  "name": "auth-token-while-suspended",
+  "operation": "CreateMicrovmAuthToken",
+  "optional": true,
+  ...
+}
+```
+
+It exempts nothing else. A step that genuinely fails still halts its scenario however it is marked. Do not mark a step that carries `capture`: the vars it would have set go missing and the failure resurfaces several steps later, a long way from its cause.
+
 ## Rejected fixtures
 
 A fixture renamed to `<step>.json.rejected-<reason>` is a recording the suite refuses to treat as truth, because it captured the recording *account* rather than the service. They are kept rather than deleted: each one is evidence, and each cost a live session.

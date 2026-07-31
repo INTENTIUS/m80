@@ -25,6 +25,8 @@ func Register(srv *api.Server, svc *Service, images ImageResolver) {
 	srv.Register("RunMicrovm", h.run)
 	srv.Register("GetMicrovm", h.get)
 	srv.Register("ListMicrovms", h.list)
+	srv.Register("SuspendMicrovm", h.suspend)
+	srv.Register("ResumeMicrovm", h.resume)
 	srv.Register("TerminateMicrovm", h.terminate)
 }
 
@@ -95,7 +97,7 @@ func (h *handlers) run(w http.ResponseWriter, r *http.Request) {
 	}
 
 	vm := h.svc.Run(region, arn, version, idle)
-	api.WriteJSON(w, http.StatusOK, detail(vm))
+	api.WriteJSON(w, http.StatusOK, detail(h.svc.Snapshot(vm)))
 }
 
 func (h *handlers) lookup(w http.ResponseWriter, r *http.Request) (*VM, bool) {
@@ -118,38 +120,76 @@ func (h *handlers) get(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	api.WriteJSON(w, http.StatusOK, detail(vm))
+	api.WriteJSON(w, http.StatusOK, detail(h.svc.Snapshot(vm)))
 }
 
 func (h *handlers) list(w http.ResponseWriter, r *http.Request) {
 	region := api.RegionFromRequest(r)
 	items := make([]any, 0)
-	for _, vm := range h.svc.List(region) {
+	for _, vm := range h.svc.Snapshots(region) {
 		items = append(items, listItem(vm))
 	}
 	api.WriteJSON(w, http.StatusOK, map[string]any{"items": items, "nextToken": nil})
 }
 
-func (h *handlers) terminate(w http.ResponseWriter, r *http.Request) {
+// mutable resolves the VM and rejects the one case the recording pinned down:
+// any state change on a terminated VM is a plain 400 ValidationException, not
+// either modeled conflict type. Suspend, resume and terminate share it.
+func (h *handlers) mutable(w http.ResponseWriter, r *http.Request) (*VM, bool) {
 	vm, ok := h.lookup(w, r)
 	if !ok {
-		return
+		return nil, false
 	}
-	if vm.Terminal() {
-		// The recorded shape for mutating a terminated VM: a plain 400
-		// ValidationException, not either modeled conflict type.
+	if snap := h.svc.Snapshot(vm); snap.Terminal() {
 		api.WriteError(w, http.StatusBadRequest, "ValidationException", map[string]any{
 			"message": "The MicroVM " + vm.ID + " has been terminated and its state cannot be changed.",
 		})
-		return
+		return nil, false
 	}
-	h.svc.Terminate(vm)
-	// Recorded: 200 with an empty object, not the VM.
+	return vm, true
+}
+
+// Recorded: 200 with an empty object, not the VM. All three mutations answer
+// the same way.
+func writeAccepted(w http.ResponseWriter) {
 	api.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// detail is the full VM shape, returned identically by Run and Get.
-func detail(vm *VM) map[string]any {
+func (h *handlers) suspend(w http.ResponseWriter, r *http.Request) {
+	vm, ok := h.mutable(w, r)
+	if !ok {
+		return
+	}
+	h.svc.Suspend(vm)
+	writeAccepted(w)
+}
+
+func (h *handlers) resume(w http.ResponseWriter, r *http.Request) {
+	vm, ok := h.mutable(w, r)
+	if !ok {
+		return
+	}
+	h.svc.Resume(vm)
+	writeAccepted(w)
+}
+
+func (h *handlers) terminate(w http.ResponseWriter, r *http.Request) {
+	vm, ok := h.mutable(w, r)
+	if !ok {
+		return
+	}
+	h.svc.Terminate(vm)
+	writeAccepted(w)
+}
+
+// detail is the full VM shape, returned identically by Run and Get. It takes
+// a snapshot rather than the live VM so a transition cannot change state
+// halfway through building the body.
+//
+// The state marker is deliberately absent: it is m80's own instrumentation,
+// read through the per-VM endpoint stub (#12), and putting it on a modeled
+// response would be an invented member on the wire.
+func detail(vm VM) map[string]any {
 	body := map[string]any{
 		"egressNetworkConnectors":  []any{managedConnector(vm.Region, "INTERNET_EGRESS")},
 		"endpoint":                 vm.Endpoint,
@@ -173,7 +213,7 @@ func detail(vm *VM) map[string]any {
 }
 
 // listItem is a summary: five members, not the full detail.
-func listItem(vm *VM) map[string]any {
+func listItem(vm VM) map[string]any {
 	return map[string]any{
 		"imageArn":     vm.ImageArn,
 		"imageVersion": vm.ImageVersion,

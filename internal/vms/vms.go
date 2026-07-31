@@ -1,22 +1,28 @@
-// Package vms implements the MicroVM resource: run, get, list, terminate.
-//
-// Suspend, resume and the idle timers are #11; this package owns the states
-// either side of them and the storage they share.
+// Package vms implements the MicroVM resource: run, get, list, suspend,
+// resume, terminate, and the three timers that bound a VM's life.
 //
 // Two recorded facts shape everything here. VM ids are microvm-<uuid>, not
 // the mv-… the docs guessed, and every VM carries managed default connectors
 // on both directions — INTERNET_EGRESS out and HTTP_INGRESS in — neither of
 // which appears in the model's NetworkConnectorType enum.
+//
+// Every mutable field of every VM is guarded by the service mutex. The
+// transitions run on clock callbacks, which under clock.Real are separate
+// goroutines, while handlers read the same fields to build a response. Tests
+// use clock.Test, whose callbacks run on the test goroutine, so -race cannot
+// see that collision; it is real in the shipped binary regardless.
 package vms
 
 import (
+	"sync"
 	"time"
 
 	"github.com/intentius/m80/internal/clock"
 	"github.com/intentius/m80/internal/store"
 )
 
-// VM states, from MicrovmState.
+// VM states, from MicrovmState. There is no RESUMING: recorded, a resume goes
+// SUSPENDED straight to RUNNING with nothing sampled between.
 const (
 	StatePending     = "PENDING"
 	StateRunning     = "RUNNING"
@@ -26,12 +32,19 @@ const (
 	StateTerminated  = "TERMINATED"
 )
 
-// MaximumDurationSeconds is the eight-hour session cap every VM reports.
+// MaximumDurationSeconds is the eight-hour session cap every VM reports, and
+// the deadline the service enforces against it whatever state the VM is in.
 const MaximumDurationSeconds = 28800
+
+// MaximumDuration is MaximumDurationSeconds as a duration.
+const MaximumDuration = MaximumDurationSeconds * time.Second
 
 // IdlePolicy is echoed back as given. autoResumeEnabled is required whenever
 // the policy is present at all — recorded, and the model marks no member of
 // it required.
+//
+// The policy is written once, at Run, and read thereafter; nothing mutates it
+// in place, which is why a VM snapshot can share the pointer.
 type IdlePolicy struct {
 	AutoResumeEnabled        bool `json:"autoResumeEnabled"`
 	MaxIdleDurationSeconds   *int `json:"maxIdleDurationSeconds,omitempty"`
@@ -49,11 +62,30 @@ type VM struct {
 	StateReason  *string
 	IdlePolicy   *IdlePolicy
 	Endpoint     string
+
+	// LastActivity is when the endpoint last saw traffic. The idle timer
+	// measures from here, not from when it happened to be armed.
+	LastActivity time.Time
+
+	// Marker is the state marker: a monotonic counter bumped by every
+	// endpoint request and never reset, so a client that reads it through the
+	// endpoint stub (#12) across a suspend and resume can prove the VM's
+	// state survived rather than being rebuilt.
+	Marker uint64
+
+	// stateSeq is bumped on every state change. A timer captures it when
+	// armed and does nothing if it no longer matches, which is how a stale
+	// idle or suspend-cap timer from an earlier RUNNING or SUSPENDED period
+	// stays harmless — clock.Clock has no cancel, by design.
+	stateSeq uint64
 }
 
 // Terminal reports whether the VM can still change state. Mutating a
 // terminated VM is a 400 ValidationException, recorded — not either of the
 // conflict types the model offers.
+//
+// Callers outside this package read it off a Snapshot; inside, it is only
+// safe under the service mutex.
 func (v *VM) Terminal() bool {
 	return v.State == StateTerminated
 }
@@ -63,8 +95,13 @@ type Service struct {
 	store *store.Store
 
 	// Transition is one hop of a VM state machine: PENDING to RUNNING,
-	// TERMINATING to TERMINATED.
+	// SUSPENDING to SUSPENDED, TERMINATING to TERMINATED.
 	Transition time.Duration
+
+	// mu guards every mutable field of every VM this service owns. One lock
+	// rather than one per VM: an emulator has no contention worth splitting,
+	// and a single lock is one fewer ordering rule to get wrong.
+	mu sync.Mutex
 }
 
 func NewService(c clock.Clock, s *store.Store, transition time.Duration) *Service {
@@ -77,6 +114,15 @@ func (s *Service) collection(region string) *store.Collection[*VM] {
 
 func (s *Service) Get(region, id string) (*VM, bool) {
 	return s.collection(region).Get(id)
+}
+
+// Snapshot copies a VM's mutable state under the lock, so a handler renders
+// one consistent view rather than reading fields a transition is midway
+// through changing.
+func (s *Service) Snapshot(vm *VM) VM {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return *vm
 }
 
 // List returns VMs sorted by id so responses are stable. Terminated VMs stay
@@ -95,52 +141,113 @@ func (s *Service) List(region string) []*VM {
 	return out
 }
 
-// Run creates a VM in PENDING and schedules it into RUNNING.
+// Snapshots is List with every VM copied under one acquisition of the lock,
+// so a list response cannot show two VMs from different instants.
+func (s *Service) Snapshots(region string) []VM {
+	vms := s.List(region)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]VM, 0, len(vms))
+	for _, vm := range vms {
+		out = append(out, *vm)
+	}
+	return out
+}
+
+// Run creates a VM in PENDING and schedules it into RUNNING. The eight-hour
+// session cap is armed here and never re-armed: it bounds total life from
+// launch, regardless of how the VM spends it.
 func (s *Service) Run(region, imageArn, imageVersion string, idle *IdlePolicy) *VM {
 	id := "microvm-" + newUUID()
+	now := s.clock.Now()
 	vm := &VM{
 		ID:           id,
 		Region:       region,
 		ImageArn:     imageArn,
 		ImageVersion: imageVersion,
 		State:        StatePending,
-		StartedAt:    s.clock.Now(),
+		StartedAt:    now,
+		LastActivity: now,
 		IdlePolicy:   idle,
 		// The endpoint hostname is a bare UUID, not the microvm- prefixed id.
 		Endpoint: newUUID() + ".lambda-microvm." + region + ".on.aws",
 	}
 	s.collection(region).Put(id, vm)
+
+	seq := vm.stateSeq
 	s.clock.After(s.Transition, func() {
-		if vm.State == StatePending {
-			vm.State = StateRunning
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if vm.stateSeq != seq || vm.State != StatePending {
+			return
 		}
+		s.enterRunningLocked(vm)
 	})
+	s.armSessionCap(vm)
 	return vm
+}
+
+// Suspend walks a VM to SUSPENDED through SUSPENDING.
+//
+// Suspending an already suspending or suspended VM is a no-op answered 200,
+// and so is suspending one on its way to TERMINATED. Neither was recorded, and
+// between inventing an error type and being idempotent, idempotent is the
+// safer guess for a consumer whose reconcile loop may re-issue the call.
+// PENDING is allowed through for the same reason.
+func (s *Service) Suspend(vm *VM) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch vm.State {
+	case StatePending, StateRunning:
+		s.beginSuspendLocked(vm)
+	}
+}
+
+// Resume returns a suspended VM to RUNNING with no state in between.
+//
+// Recorded 2026-07-30: a five-second poll across a full cycle saw SUSPENDED
+// then RUNNING and nothing else, while the same poll did catch PENDING on the
+// initial launch — so the two paths genuinely differ and this is not a
+// sampling artifact. The enum has no RESUMING to occupy anyway.
+//
+// A VM still in SUSPENDING resumes too: its pending transition finds a
+// changed stateSeq and does nothing.
+func (s *Service) Resume(vm *VM) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch vm.State {
+	case StateSuspending, StateSuspended:
+		s.enterRunningLocked(vm)
+	}
+}
+
+// Touch records endpoint traffic: it bumps the state marker and resets the
+// idle timer's reference point. #12's endpoint stub is the caller; it returns
+// the marker so the stub can serve it back.
+func (s *Service) Touch(vm *VM) uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	vm.LastActivity = s.clock.Now()
+	vm.Marker++
+	return vm.Marker
 }
 
 // Terminate walks the VM to TERMINATED through TERMINATING. The recording
 // never sampled TERMINATING at a five-second poll, but it is in the enum and
 // a faster client can see it, so m80 goes through it rather than jumping.
 func (s *Service) Terminate(vm *VM) {
-	if vm.Terminal() || vm.State == StateTerminating {
-		return
-	}
-	vm.State = StateTerminating
-	s.clock.After(s.Transition, func() {
-		vm.State = StateTerminated
-		now := s.clock.Now()
-		vm.TerminatedAt = &now
-		// Recorded: a cleanly terminated VM reports exactly this, trailing
-		// period included.
-		reason := "Success."
-		vm.StateReason = &reason
-	})
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.terminateLocked(vm)
 }
 
 // HasRunningVMs implements the images package's VMChecker: an image cannot be
 // deleted while anything is running off it.
 func (s *Service) HasRunningVMs(region, imageArn string) bool {
-	for _, vm := range s.List(region) {
+	vms := s.List(region)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, vm := range vms {
 		if vm.ImageArn != imageArn {
 			continue
 		}
@@ -149,6 +256,121 @@ func (s *Service) HasRunningVMs(region, imageArn string) bool {
 		}
 	}
 	return false
+}
+
+func (s *Service) setStateLocked(vm *VM, state string) {
+	vm.State = state
+	vm.stateSeq++
+}
+
+// enterRunningLocked is the one way into RUNNING, from launch or from resume,
+// so the idle timer is armed identically on both paths.
+func (s *Service) enterRunningLocked(vm *VM) {
+	s.setStateLocked(vm, StateRunning)
+	vm.LastActivity = s.clock.Now()
+	s.armIdleLocked(vm)
+}
+
+func (s *Service) beginSuspendLocked(vm *VM) {
+	s.setStateLocked(vm, StateSuspending)
+	seq := vm.stateSeq
+	s.clock.After(s.Transition, func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if vm.stateSeq != seq {
+			return
+		}
+		s.setStateLocked(vm, StateSuspended)
+		s.armSuspendCapLocked(vm)
+	})
+}
+
+func (s *Service) terminateLocked(vm *VM) {
+	if vm.State == StateTerminated || vm.State == StateTerminating {
+		return
+	}
+	s.setStateLocked(vm, StateTerminating)
+	seq := vm.stateSeq
+	s.clock.After(s.Transition, func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if vm.stateSeq != seq {
+			return
+		}
+		s.setStateLocked(vm, StateTerminated)
+		now := s.clock.Now()
+		vm.TerminatedAt = &now
+		// Recorded: a cleanly terminated VM reports exactly this, trailing
+		// period included. A VM the suspend cap or the session cap ended
+		// reports it too — the service's wording for those paths was never
+		// recorded, and guessing a different string would put an invented
+		// value on the wire.
+		reason := "Success."
+		vm.StateReason = &reason
+	})
+}
+
+// armIdleLocked starts the idle countdown for the VM's current RUNNING
+// period. No policy, or no maxIdleDurationSeconds in it, means no idle
+// suspend at all.
+func (s *Service) armIdleLocked(vm *VM) {
+	if vm.IdlePolicy == nil || vm.IdlePolicy.MaxIdleDurationSeconds == nil {
+		return
+	}
+	window := time.Duration(*vm.IdlePolicy.MaxIdleDurationSeconds) * time.Second
+	s.armIdleAfterLocked(vm, window, vm.stateSeq)
+}
+
+// armIdleAfterLocked schedules the idle check. Because the clock has no
+// cancel, traffic does not reset the timer; the timer fires, finds activity
+// newer than it expected, and re-arms for the remainder. Same behavior, one
+// less thing for the clock to model.
+func (s *Service) armIdleAfterLocked(vm *VM, d time.Duration, seq uint64) {
+	s.clock.After(d, func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if vm.stateSeq != seq || vm.State != StateRunning {
+			return
+		}
+		if vm.IdlePolicy == nil || vm.IdlePolicy.MaxIdleDurationSeconds == nil {
+			return
+		}
+		window := time.Duration(*vm.IdlePolicy.MaxIdleDurationSeconds) * time.Second
+		if idle := s.clock.Now().Sub(vm.LastActivity); idle < window {
+			s.armIdleAfterLocked(vm, window-idle, seq)
+			return
+		}
+		s.beginSuspendLocked(vm)
+	})
+}
+
+// armSuspendCapLocked bounds how long a VM may sit in SUSPENDED before the
+// service reclaims it.
+func (s *Service) armSuspendCapLocked(vm *VM) {
+	if vm.IdlePolicy == nil || vm.IdlePolicy.SuspendedDurationSeconds == nil {
+		return
+	}
+	window := time.Duration(*vm.IdlePolicy.SuspendedDurationSeconds) * time.Second
+	seq := vm.stateSeq
+	s.clock.After(window, func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if vm.stateSeq != seq || vm.State != StateSuspended {
+			return
+		}
+		s.terminateLocked(vm)
+	})
+}
+
+// armSessionCap bounds total session life at eight hours. It carries no
+// stateSeq guard: unlike the other two it is not scoped to a state, and a VM
+// that suspended and resumed six times still dies at the same wall time.
+func (s *Service) armSessionCap(vm *VM) {
+	s.clock.After(MaximumDuration, func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.terminateLocked(vm)
+	})
 }
 
 func sortStrings(s []string) {

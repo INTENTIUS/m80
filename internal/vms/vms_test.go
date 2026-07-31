@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -73,6 +74,47 @@ func (h *harness) run(t *testing.T) (string, map[string]any) {
 		t.Fatalf("run: status %d (%s)", rec.Code, rec.Body.String())
 	}
 	return doc["microvmId"].(string), doc
+}
+
+// runIdle launches a VM carrying an idle policy and settles it into RUNNING,
+// which is where every timer test starts.
+func (h *harness) runIdle(t *testing.T, maxIdleSec, suspendedSec int) string {
+	t.Helper()
+	policy := map[string]any{"autoResumeEnabled": false}
+	if maxIdleSec > 0 {
+		policy["maxIdleDurationSeconds"] = maxIdleSec
+	}
+	if suspendedSec > 0 {
+		policy["suspendedDurationSeconds"] = suspendedSec
+	}
+	rec, doc := h.do("POST", "/2025-09-09/microvms", map[string]any{
+		"imageIdentifier": imgArn,
+		"idlePolicy":      policy,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("run: status %d (%s)", rec.Code, rec.Body.String())
+	}
+	h.clk.Advance(hop)
+	return doc["microvmId"].(string)
+}
+
+func (h *harness) state(t *testing.T, id string) string {
+	t.Helper()
+	rec, doc := h.do("GET", "/2025-09-09/microvms/"+id, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get %s: status %d", id, rec.Code)
+	}
+	s, _ := doc["state"].(string)
+	return s
+}
+
+func (h *harness) vm(t *testing.T, id string) *VM {
+	t.Helper()
+	vm, ok := h.svc.Get(region, id)
+	if !ok {
+		t.Fatalf("VM %s not in the store", id)
+	}
+	return vm
 }
 
 // VM ids are microvm-<uuid>; the mv-… in the early docs was a guess, and the
@@ -299,5 +341,339 @@ func TestMissingVMIs404(t *testing.T) {
 	rec, _ := h.do("GET", "/2025-09-09/microvms/microvm-00000000-0000-0000-0000-000000000000", nil)
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status %d, want 404", rec.Code)
+	}
+}
+
+// SUSPENDING was never sampled live at a five-second poll, but it is in the
+// enum and a faster client can see it, so m80 goes through it.
+func TestSuspendWalksThroughSuspending(t *testing.T) {
+	h := newHarness(t, stubImages{runnable: true})
+	id := h.runIdle(t, 0, 0)
+
+	rec, doc := h.do("POST", "/2025-09-09/microvms/"+id+"/suspend", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("suspend: status %d (%s)", rec.Code, rec.Body.String())
+	}
+	if len(doc) != 0 {
+		t.Errorf("suspend body %v, want {}", doc)
+	}
+	if got := h.state(t, id); got != StateSuspending {
+		t.Fatalf("state %v, want SUSPENDING", got)
+	}
+	h.clk.Advance(hop)
+	if got := h.state(t, id); got != StateSuspended {
+		t.Fatalf("state %v, want SUSPENDED", got)
+	}
+}
+
+// The recorded asymmetry: the same five-second poll that caught PENDING on
+// the initial launch saw nothing at all between SUSPENDED and RUNNING. There
+// is no RESUMING in the enum, and resume does not go back through PENDING.
+func TestResumeGoesStraightToRunningWithoutPending(t *testing.T) {
+	h := newHarness(t, stubImages{runnable: true})
+	id := h.runIdle(t, 0, 0)
+	h.do("POST", "/2025-09-09/microvms/"+id+"/suspend", nil)
+	h.clk.Advance(hop)
+
+	rec, doc := h.do("POST", "/2025-09-09/microvms/"+id+"/resume", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("resume: status %d (%s)", rec.Code, rec.Body.String())
+	}
+	if len(doc) != 0 {
+		t.Errorf("resume body %v, want {}", doc)
+	}
+	// RUNNING on the very next read, with no transition hop advanced.
+	if got := h.state(t, id); got != StateRunning {
+		t.Fatalf("state %v immediately after resume, want RUNNING", got)
+	}
+}
+
+// A resume that arrives while the suspend is still settling wins: the pending
+// transition finds a changed generation and does nothing.
+func TestResumeDuringSuspendingCancelsTheSuspend(t *testing.T) {
+	h := newHarness(t, stubImages{runnable: true})
+	id := h.runIdle(t, 0, 0)
+	h.do("POST", "/2025-09-09/microvms/"+id+"/suspend", nil)
+	if got := h.state(t, id); got != StateSuspending {
+		t.Fatalf("state %v, want SUSPENDING", got)
+	}
+
+	h.do("POST", "/2025-09-09/microvms/"+id+"/resume", nil)
+	if got := h.state(t, id); got != StateRunning {
+		t.Fatalf("state %v, want RUNNING", got)
+	}
+	// The suspend's transition is still scheduled; it must not land.
+	h.clk.Advance(hop * 4)
+	if got := h.state(t, id); got != StateRunning {
+		t.Fatalf("state %v after the stale transition came due, want RUNNING", got)
+	}
+}
+
+// Suspending something already suspended is a no-op answered 200. Unrecorded,
+// and idempotence is the safer guess than an invented error for a reconciler
+// that may re-issue the call.
+func TestSuspendIsIdempotent(t *testing.T) {
+	h := newHarness(t, stubImages{runnable: true})
+	id := h.runIdle(t, 0, 0)
+	h.do("POST", "/2025-09-09/microvms/"+id+"/suspend", nil)
+	h.clk.Advance(hop)
+
+	rec, _ := h.do("POST", "/2025-09-09/microvms/"+id+"/suspend", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d, want 200", rec.Code)
+	}
+	if got := h.state(t, id); got != StateSuspended {
+		t.Errorf("state %v, want SUSPENDED", got)
+	}
+}
+
+func TestIdleTimerSuspendsAfterMaxIdle(t *testing.T) {
+	h := newHarness(t, stubImages{runnable: true})
+	id := h.runIdle(t, 900, 0)
+
+	h.clk.Advance(899 * time.Second)
+	if got := h.state(t, id); got != StateRunning {
+		t.Fatalf("state %v one second short of the idle window, want RUNNING", got)
+	}
+	h.clk.Advance(time.Second)
+	if got := h.state(t, id); got != StateSuspending {
+		t.Fatalf("state %v at the idle window, want SUSPENDING", got)
+	}
+	h.clk.Advance(hop)
+	if got := h.state(t, id); got != StateSuspended {
+		t.Fatalf("state %v, want SUSPENDED", got)
+	}
+}
+
+// Endpoint traffic resets the countdown. The clock has no cancel, so the
+// armed timer fires, finds newer activity than it expected and re-arms for
+// the remainder — the VM must not suspend on that first firing.
+func TestEndpointTrafficDefersIdleSuspend(t *testing.T) {
+	h := newHarness(t, stubImages{runnable: true})
+	id := h.runIdle(t, 900, 0)
+	vm := h.vm(t, id)
+
+	h.clk.Advance(400 * time.Second)
+	h.svc.Touch(vm)
+
+	// The original timer comes due here and must decline to act.
+	h.clk.Advance(500 * time.Second)
+	if got := h.state(t, id); got != StateRunning {
+		t.Fatalf("state %v after traffic reset the window, want RUNNING", got)
+	}
+	// 900s after the touch, not after the arming.
+	h.clk.Advance(400 * time.Second)
+	if got := h.state(t, id); got != StateSuspending {
+		t.Fatalf("state %v 900s after the last traffic, want SUSPENDING", got)
+	}
+}
+
+func TestNoIdlePolicyMeansNoIdleSuspend(t *testing.T) {
+	h := newHarness(t, stubImages{runnable: true})
+	id, _ := h.run(t)
+	h.clk.Advance(hop)
+
+	h.clk.Advance(4 * time.Hour)
+	if got := h.state(t, id); got != StateRunning {
+		t.Errorf("state %v with no idlePolicy, want RUNNING", got)
+	}
+}
+
+func TestSuspendCapTerminatesSuspendedVM(t *testing.T) {
+	h := newHarness(t, stubImages{runnable: true})
+	id := h.runIdle(t, 900, 1800)
+	h.do("POST", "/2025-09-09/microvms/"+id+"/suspend", nil)
+	h.clk.Advance(hop)
+	if got := h.state(t, id); got != StateSuspended {
+		t.Fatalf("state %v, want SUSPENDED", got)
+	}
+
+	h.clk.Advance(1799 * time.Second)
+	if got := h.state(t, id); got != StateSuspended {
+		t.Fatalf("state %v one second short of the suspend cap, want SUSPENDED", got)
+	}
+	h.clk.Advance(2*time.Second + hop)
+	if got := h.state(t, id); got != StateTerminated {
+		t.Fatalf("state %v past the suspend cap, want TERMINATED", got)
+	}
+}
+
+// A resume restarts the suspend cap. The first suspension's timer is stale
+// and must not reclaim a VM that has since suspended a second time.
+func TestSuspendCapDoesNotFireOnAStaleSuspension(t *testing.T) {
+	h := newHarness(t, stubImages{runnable: true})
+	id := h.runIdle(t, 0, 1800)
+
+	h.do("POST", "/2025-09-09/microvms/"+id+"/suspend", nil)
+	h.clk.Advance(hop)
+	h.clk.Advance(1000 * time.Second)
+	h.do("POST", "/2025-09-09/microvms/"+id+"/resume", nil)
+
+	// Suspend again; the first suspension's cap comes due 800s from now and
+	// must be inert, because this suspension has its own full 1800s.
+	h.do("POST", "/2025-09-09/microvms/"+id+"/suspend", nil)
+	h.clk.Advance(hop)
+	h.clk.Advance(1000 * time.Second)
+	if got := h.state(t, id); got != StateSuspended {
+		t.Fatalf("state %v: a stale suspend cap reclaimed the VM early", got)
+	}
+}
+
+// Eight hours bounds total session life regardless of how the VM spent it.
+func TestSessionCapTerminatesRegardlessOfState(t *testing.T) {
+	h := newHarness(t, stubImages{runnable: true})
+	id := h.runIdle(t, 0, 0)
+	h.do("POST", "/2025-09-09/microvms/"+id+"/suspend", nil)
+	h.clk.Advance(hop)
+
+	h.clk.Advance(MaximumDuration - 10*time.Second)
+	if got := h.state(t, id); got != StateSuspended {
+		t.Fatalf("state %v short of the session cap, want SUSPENDED", got)
+	}
+	h.clk.Advance(10*time.Second + hop)
+	if got := h.state(t, id); got != StateTerminated {
+		t.Fatalf("state %v at the eight-hour cap, want TERMINATED", got)
+	}
+}
+
+// The point of the marker: state that survives a suspend and resume, which is
+// what #12's endpoint stub serves back to prove the VM was not rebuilt.
+func TestMarkerSurvivesSuspendResume(t *testing.T) {
+	h := newHarness(t, stubImages{runnable: true})
+	id := h.runIdle(t, 900, 1800)
+	vm := h.vm(t, id)
+
+	h.svc.Touch(vm)
+	h.svc.Touch(vm)
+	if got := h.svc.Snapshot(vm).Marker; got != 2 {
+		t.Fatalf("marker %d after two requests, want 2", got)
+	}
+
+	h.do("POST", "/2025-09-09/microvms/"+id+"/suspend", nil)
+	h.clk.Advance(hop)
+	h.do("POST", "/2025-09-09/microvms/"+id+"/resume", nil)
+
+	if got := h.svc.Snapshot(vm).Marker; got != 2 {
+		t.Fatalf("marker %d across suspend and resume, want it preserved at 2", got)
+	}
+	if got := h.svc.Touch(vm); got != 3 {
+		t.Errorf("marker %d on the next request, want it to keep counting at 3", got)
+	}
+}
+
+// The marker is m80's own instrumentation and must not leak onto a modeled
+// response, where it would be an invented member.
+func TestMarkerIsNotOnTheWire(t *testing.T) {
+	h := newHarness(t, stubImages{runnable: true})
+	id := h.runIdle(t, 0, 0)
+	h.svc.Touch(h.vm(t, id))
+
+	_, doc := h.do("GET", "/2025-09-09/microvms/"+id, nil)
+	for _, member := range []string{"marker", "Marker", "stateMarker", "lastActivity"} {
+		if _, has := doc[member]; has {
+			t.Errorf("GetMicrovm response carries %q", member)
+		}
+	}
+}
+
+// Case 82: suspending a terminated VM is a plain 400 ValidationException, not
+// either conflict type the model offers. Resume takes the same path.
+func TestSuspendAndResumeOnTerminatedVMAre400(t *testing.T) {
+	h := newHarness(t, stubImages{runnable: true})
+	id := h.runIdle(t, 0, 0)
+	h.do("DELETE", "/2025-09-09/microvms/"+id, nil)
+	h.clk.Advance(hop)
+	if got := h.state(t, id); got != StateTerminated {
+		t.Fatalf("state %v, want TERMINATED", got)
+	}
+
+	for _, action := range []string{"suspend", "resume"} {
+		rec, doc := h.do("POST", "/2025-09-09/microvms/"+id+"/"+action, nil)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: status %d, want 400", action, rec.Code)
+		}
+		if got := rec.Header().Get("X-Amzn-Errortype"); got != "ValidationException" {
+			t.Errorf("%s: error type %q, want ValidationException", action, got)
+		}
+		if msg, _ := doc["message"].(string); !strings.Contains(msg, "has been terminated") {
+			t.Errorf("%s: message %q", action, msg)
+		}
+	}
+}
+
+func TestSuspendOnMissingVMIs404(t *testing.T) {
+	h := newHarness(t, stubImages{runnable: true})
+	rec, _ := h.do("POST", "/2025-09-09/microvms/microvm-00000000-0000-0000-0000-000000000000/suspend", nil)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status %d, want 404", rec.Code)
+	}
+}
+
+// Every other test here drives clock.Test, whose callbacks run on the test
+// goroutine, so -race never sees the transitions and handlers touching a VM
+// at once. This one runs the real clock and reads while they fire, which is
+// the arrangement the shipped binary is actually in.
+func TestTransitionsAndHandlersDoNotRace(t *testing.T) {
+	st := store.New()
+	clk := clock.Real{}
+	srv := api.NewServer(clk, st, "test")
+	svc := NewService(clk, st, time.Millisecond)
+	Register(srv, svc, stubImages{runnable: true})
+
+	get := func(path string) {
+		r := httptest.NewRequest("GET", path, nil)
+		r.Header.Set("Authorization",
+			"AWS4-HMAC-SHA256 Credential=AKID/20260730/"+region+"/lambda/aws4_request, SignedHeaders=host, Signature=x")
+		srv.ServeHTTP(httptest.NewRecorder(), r)
+	}
+	post := func(path string, body any) {
+		raw, _ := json.Marshal(body)
+		r := httptest.NewRequest("POST", path, strings.NewReader(string(raw)))
+		r.Header.Set("Authorization",
+			"AWS4-HMAC-SHA256 Credential=AKID/20260730/"+region+"/lambda/aws4_request, SignedHeaders=host, Signature=x")
+		srv.ServeHTTP(httptest.NewRecorder(), r)
+	}
+
+	idle := 1
+	vm := svc.Run(region, imgArn, "1.0", &IdlePolicy{
+		AutoResumeEnabled:      false,
+		MaxIdleDurationSeconds: &idle,
+	})
+
+	var wg sync.WaitGroup
+	deadline := time.Now().Add(150 * time.Millisecond)
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for time.Now().Before(deadline) {
+				get("/2025-09-09/microvms/" + vm.ID)
+				get("/2025-09-09/microvms")
+				svc.Touch(vm)
+				svc.HasRunningVMs(region, imgArn)
+			}
+		}()
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for time.Now().Before(deadline) {
+			post("/2025-09-09/microvms/"+vm.ID+"/suspend", nil)
+			post("/2025-09-09/microvms/"+vm.ID+"/resume", nil)
+		}
+	}()
+	wg.Wait()
+}
+
+// A suspended VM still blocks its image's deletion; only a terminal one frees
+// it.
+func TestSuspendedVMStillBlocksImageDeletion(t *testing.T) {
+	h := newHarness(t, stubImages{runnable: true})
+	id := h.runIdle(t, 0, 0)
+	h.do("POST", "/2025-09-09/microvms/"+id+"/suspend", nil)
+	h.clk.Advance(hop)
+
+	if !h.svc.HasRunningVMs(region, imgArn) {
+		t.Error("a SUSPENDED VM did not block image deletion")
 	}
 }
