@@ -21,6 +21,7 @@ func main() {
 	record := flag.Bool("record", false, "record fixtures from responses instead of asserting")
 	maxPoll := flag.Float64("poll-timeout", 0, "cap every until timeout, in seconds (0 keeps case values; use ~15 against an emulator)")
 	tier := flag.String("tier", "all", "comparison strictness: all, or load-bearing to ignore members nothing branches on")
+	keepGoing := flag.Bool("keep-going", false, "continue a scenario past a step whose body diverged, to report every divergence in one run rather than the first")
 	tiersPath := flag.String("tiers", "conformance/tiers.json", "member tier classification")
 	asJSON := flag.Bool("json", false, "JSON report on stdout")
 	inventoryPath := flag.String("inventory", "conformance/inventory.json", "operation inventory")
@@ -63,6 +64,7 @@ func main() {
 		Record:      *record,
 		MaxPollSec:  *maxPoll,
 		Tier:        runner.Tier(*tier),
+		KeepGoing:   *keepGoing,
 		Tiers:       tiers,
 		Params:      params.m,
 		Credentials: runner.CredentialsFromEnv(),

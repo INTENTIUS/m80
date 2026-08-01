@@ -135,8 +135,17 @@ type Config struct {
 	// Tier and Tiers select how strictly fixtures are compared. Zero values
 	// mean full equality, which is what a recording run and m80's own runs
 	// want.
-	Tier        Tier
-	Tiers       *Tiers
+	Tier  Tier
+	Tiers *Tiers
+	// KeepGoing lets a scenario continue past a step whose body diverged from
+	// its fixture, so one run reports every divergence instead of the first.
+	//
+	// It is a measuring aid, not a softer gate: only a body mismatch is
+	// survivable, because the request still succeeded and the resource still
+	// exists. A wrong status, a wrong error type or a poll that never settled
+	// still halts the scenario, since nothing after it can be trusted. The
+	// step is reported as failed either way and the exit status is unchanged.
+	KeepGoing   bool
 	Params      map[string]string
 	Credentials aws.Credentials
 	HTTPClient  *http.Client
@@ -253,9 +262,16 @@ func (r *Runner) runScenario(s Scenario) []StepResult {
 			results = append(results, res)
 			continue
 		}
-		outcome, detail, fixture := r.runStep(s, st, vars)
+		outcome, detail, fixture, divergedOnly := r.runStep(s, st, vars)
 		res.Outcome, res.Detail, res.Fixture = outcome, detail, fixture
-		if outcome != Pass && !(st.Optional && outcome == Unimplemented) {
+		switch {
+		case outcome == Pass:
+		case st.Optional && outcome == Unimplemented:
+		case r.cfg.KeepGoing && divergedOnly:
+			// Measuring, not gating. One divergence in a create step
+			// otherwise hides every divergence behind it, and a target is
+			// then improved one slow rebuild at a time.
+		default:
 			failed = true
 		}
 		results = append(results, res)
@@ -263,7 +279,7 @@ func (r *Runner) runScenario(s Scenario) []StepResult {
 	return results
 }
 
-func (r *Runner) runStep(s Scenario, st Step, vars map[string]string) (Outcome, string, bool) {
+func (r *Runner) runStep(s Scenario, st Step, vars map[string]string) (Outcome, string, bool, bool) {
 	deadline := time.Now().Add(time.Duration(1) * time.Second)
 	interval := time.Duration(0)
 	if st.Until != nil {
@@ -292,10 +308,10 @@ func (r *Runner) runStep(s Scenario, st Step, vars map[string]string) (Outcome, 
 	for {
 		status, body, errType, err := r.request(st, vars)
 		if err != nil {
-			return Errored, err.Error(), false
+			return Errored, err.Error(), false, false
 		}
 		if status == http.StatusNotImplemented {
-			return Unimplemented, "", false
+			return Unimplemented, "", false, false
 		}
 
 		if st.Until != nil {
@@ -305,18 +321,20 @@ func (r *Runner) runStep(s Scenario, st Step, vars map[string]string) (Outcome, 
 			}
 			if got != st.Until.Equals {
 				if time.Now().After(deadline) {
-					return Fail, fmt.Sprintf("until %s=%q not reached, last %q", st.Until.Path, st.Until.Equals, got), false
+					return Fail, fmt.Sprintf("until %s=%q not reached, last %q", st.Until.Path, st.Until.Equals, got), false, false
 				}
 				time.Sleep(interval)
 				continue
 			}
 		}
 
-		outcome, detail, fixture := r.check(s, st, status, body, errType, observed)
-		if outcome == Pass {
+		outcome, detail, fixture, divergedOnly := r.check(s, st, status, body, errType, observed)
+		// Captures come off a merely-diverging body too. Without them the
+		// next step has no id to act on and -keep-going would be pointless.
+		if outcome == Pass || divergedOnly {
 			r.captureVars(st, body, vars)
 		}
-		return outcome, detail, fixture
+		return outcome, detail, fixture, divergedOnly
 	}
 }
 
@@ -366,30 +384,37 @@ func errorType(h http.Header, body []byte) string {
 	return t
 }
 
-func (r *Runner) check(s Scenario, st Step, status int, body []byte, errType string, observed []string) (Outcome, string, bool) {
+// check reports the outcome, a detail line, whether a fixture backed the
+// decision, and whether the only thing wrong was the response body.
+//
+// That last one is what -keep-going acts on. A body that diverges from its
+// fixture still came from a request the target accepted, so the resource
+// exists and the scenario can go on; a wrong status or a poll that never
+// settled means it does not, and no later step can be trusted.
+func (r *Runner) check(s Scenario, st Step, status int, body []byte, errType string, observed []string) (Outcome, string, bool, bool) {
 	fixPath := filepath.Join(r.cfg.FixturesDir, s.ID, st.Name+".json")
 
 	if r.cfg.Record {
 		if st.Expect.Status != 0 && status != st.Expect.Status {
-			return Fail, fmt.Sprintf("recording aborted: status %d, want %d: %s", status, st.Expect.Status, truncate(body)), false
+			return Fail, fmt.Sprintf("recording aborted: status %d, want %d: %s", status, st.Expect.Status, truncate(body)), false, false
 		}
 		if err := writeFixture(fixPath, body); err != nil {
-			return Errored, err.Error(), false
+			return Errored, err.Error(), false, false
 		}
 		// The body alone loses the wire facts error mapping needs — status
 		// code and the modeled error type ride the headers. Sidecar them,
 		// along with the states the poll walked through to get here.
 		if err := writeMeta(fixPath, status, errType, observed); err != nil {
-			return Errored, err.Error(), false
+			return Errored, err.Error(), false, false
 		}
-		return Pass, "recorded", true
+		return Pass, "recorded", true, false
 	}
 
 	if st.Expect.Status != 0 && status != st.Expect.Status {
-		return Fail, fmt.Sprintf("status %d, want %d: %s", status, st.Expect.Status, truncate(body)), false
+		return Fail, fmt.Sprintf("status %d, want %d: %s", status, st.Expect.Status, truncate(body)), false, false
 	}
 	if st.Expect.ErrorType != "" && errType != st.Expect.ErrorType {
-		return Fail, fmt.Sprintf("error type %q, want %q", errType, st.Expect.ErrorType), false
+		return Fail, fmt.Sprintf("error type %q, want %q", errType, st.Expect.ErrorType), false, false
 	}
 	if len(st.Expect.ErrorTypeOneOf) > 0 {
 		ok := false
@@ -400,17 +425,17 @@ func (r *Runner) check(s Scenario, st Step, status int, body []byte, errType str
 			}
 		}
 		if !ok {
-			return Fail, fmt.Sprintf("error type %q not in %v", errType, st.Expect.ErrorTypeOneOf), false
+			return Fail, fmt.Sprintf("error type %q not in %v", errType, st.Expect.ErrorTypeOneOf), false, false
 		}
 	}
 	if len(st.Expect.BodyMatch) > 0 {
 		if detail, ok := subsetMatch(st.Expect.BodyMatch, body); !ok {
-			return Fail, detail, false
+			return Fail, detail, false, false
 		}
 	}
 	if st.Expect.ItemShape != nil {
 		if detail, ok := matchItemShape(*st.Expect.ItemShape, body); !ok {
-			return Fail, detail, false
+			return Fail, detail, false, false
 		}
 	}
 
@@ -419,20 +444,20 @@ func (r *Runner) check(s Scenario, st Step, status int, body []byte, errType str
 	if raw, err := os.ReadFile(fixPath); err == nil {
 		if meta, err := readMeta(fixPath); err == nil {
 			if meta.Status != 0 && status != meta.Status {
-				return Fail, fmt.Sprintf("status %d, recorded %d", status, meta.Status), true
+				return Fail, fmt.Sprintf("status %d, recorded %d", status, meta.Status), true, false
 			}
 			if meta.ErrorType != errType {
-				return Fail, fmt.Sprintf("error type %q, recorded %q", errType, meta.ErrorType), true
+				return Fail, fmt.Sprintf("error type %q, recorded %q", errType, meta.ErrorType), true, false
 			}
 		}
 		want := r.cfg.Tiers.ApplyTier(Normalize(raw), r.cfg.Tier)
 		got := r.cfg.Tiers.ApplyTier(Normalize(body), r.cfg.Tier)
 		if !jsonEqual(want, got) {
-			return Fail, "response diverges from fixture " + fixPath, true
+			return Fail, "response diverges from fixture " + fixPath, true, true
 		}
-		return Pass, "", true
+		return Pass, "", true, false
 	}
-	return Pass, "", false
+	return Pass, "", false, false
 }
 
 type fixtureMeta struct {
