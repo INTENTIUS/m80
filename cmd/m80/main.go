@@ -94,6 +94,7 @@ func main() {
 	// Each side asks the other one question: images refuses to delete while a
 	// VM runs, and vms refuses to run an image with nothing built.
 	images.Register(srv, imageSvc, vmSvc)
+	vms.Log = log
 	vms.Register(srv, vmSvc, imageSvc, limitSvc)
 
 	var stub []byte

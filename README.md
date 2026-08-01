@@ -98,6 +98,15 @@ m80 -throttle-requests-per-interval 10 -throttle-interval-seconds 1 \
 
 `-throttle-reason` is observable on the connector and tags operations, whose models carry `TooManyRequestsException.Reason`. The MicroVM family has no such member and throttles as `ThrottlingException` instead.
 
+**The memory ceiling is the one that catches people.** 4096 MiB is the number recorded from a fresh AWS account, and at the 2048 MiB default tier it is two concurrent MicroVMs — a third gets `402 ServiceQuotaExceededException`. The recorded body names no number and no knob, so m80 logs one:
+
+```
+WARN run rejected: account memory ceiling reached allocatedMiB=4096 requestedMiB=2048
+     ceilingMiB=4096 hint="raise -max-account-memory-mib, or 0 to uncap"
+```
+
+Anything running more than two VMs at once — a ReplicaSet, an operator test suite — wants `-max-account-memory-mib` raised. Pointing KubeMicroVM's UAT at m80 lost twenty of twenty-eight cases to this before the ceiling was raised, and the operator reported it as a timeout.
+
 ## Operator proof
 
 KubeMicroVM's Robot Framework UAT — 63 cases written for a live EKS cluster and a real AWS account — runs on k3d against m80. **47 of 63 pass**, run 2026-08-01 against m80 v0.1.0 and operator 1.0.11.

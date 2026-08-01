@@ -31,6 +31,7 @@ docker run --rm --network "k3d-${CLUSTER}" \
   -v "${work}/kubeconfig.yaml:/kc:ro" -e KUBECONFIG=/kc \
   -e "AWS_MICROVM_ENDPOINT=http://m80.${NS}.svc.cluster.local:4290" \
   -e "AWS_ENDPOINT_URL_STS=http://floci.${NS}.svc.cluster.local:4566" \
+  -e "AWS_ENDPOINT_URL=http://k3d-${CLUSTER}-server-0:30429" \
   -e "AWS_REGION=${REGION}" -e AWS_ACCESS_KEY_ID=test -e AWS_SECRET_ACCESS_KEY=test \
   -v "${KUBEMICROVM}/uat:/uat" -v "${RESULTS}:/results" \
   m80-uat-runner --outputdir /results --exclude performance \

@@ -74,6 +74,18 @@ spec:
           image: ${FLOCI_IMAGE}
           ports: [{ containerPort: 4566 }]
 ---
+# The Robot runner is a container on k3d's docker network, not a pod, so it
+# cannot resolve *.svc.cluster.local. Anything the suite drives with the AWS
+# CLI — the drift cases terminate a MicroVM out of band with it — needs m80
+# reachable by a docker-network address, which is what this NodePort is for.
+apiVersion: v1
+kind: Service
+metadata: { name: m80-node, namespace: ${NS} }
+spec:
+  type: NodePort
+  selector: { app: m80 }
+  ports: [{ port: 4290, targetPort: 4290, nodePort: 30429 }]
+---
 apiVersion: v1
 kind: Service
 metadata: { name: floci, namespace: ${NS} }
