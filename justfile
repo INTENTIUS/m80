@@ -73,3 +73,15 @@ dist:
 subset-floci endpoint="http://localhost:4566":
     go run ./conformance/cmd/conformance -endpoint {{endpoint}} \
         -tags subset:floci -tier load-bearing -poll-timeout 20
+
+# Bring up the k3d + m80 + operator stack for the UAT harness (#18).
+uat-up:
+    ./uat/up.sh
+
+# Run KubeMicroVM's UAT suite against it. KUBEMICROVM must point at a checkout.
+uat-run:
+    ./uat/run.sh
+
+# Tear the cluster down.
+uat-down:
+    k3d cluster delete m80-uat

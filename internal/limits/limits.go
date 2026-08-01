@@ -19,6 +19,7 @@
 package limits
 
 import (
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -203,6 +204,9 @@ func (s *Service) AllowMemory(currentMiB, wantMiB int) bool {
 	return currentMiB+wantMiB <= cfg.MaxAccountMemoryMiB
 }
 
+// CeilingMiB reports the configured account memory ceiling, for diagnostics.
+func (s *Service) CeilingMiB() int { return s.Config().MaxAccountMemoryMiB }
+
 // AllowMicrovm reports whether another non-terminal VM fits under the count
 // cap, which is off unless a tester asks for it.
 func (s *Service) AllowMicrovm(current int) bool {
@@ -221,6 +225,29 @@ func (s *Service) AllowSnapshotCreate(inFlight int) bool {
 		return true
 	}
 	return inFlight+1 <= cfg.MaxConcurrentSnapshotCreates
+}
+
+// ExplainQuota logs why a request was rejected for quota.
+//
+// The 402 body is recorded and cannot change: its message names no number and
+// no knob, and every detail member is null, so a client sees only "the base
+// maximum allocated memory limit has been reached". That is faithful and
+// nearly useless to whoever is running m80.
+//
+// It cost real time to diagnose once already. Pointing KubeMicroVM's UAT at
+// m80 lost twenty of twenty-eight cases to this, and the operator surfaced it
+// as "MicroVM did not reach Running within 120s" — no mention of quota,
+// memory, or 402 anywhere in the failure. The wire stays exact; the log says
+// what happened.
+func ExplainQuota(log *slog.Logger, currentMiB, wantMiB, ceilingMiB int) {
+	if log == nil {
+		return
+	}
+	log.Warn("run rejected: account memory ceiling reached",
+		"allocatedMiB", currentMiB,
+		"requestedMiB", wantMiB,
+		"ceilingMiB", ceilingMiB,
+		"hint", "raise -max-account-memory-mib, or 0 to uncap; the default is the ceiling recorded from a fresh AWS account")
 }
 
 // WriteQuotaExceeded answers the recorded 402.

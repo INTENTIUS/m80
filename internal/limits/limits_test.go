@@ -1,9 +1,12 @@
 package limits
 
 import (
+	"bytes"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -285,4 +288,33 @@ func TestThrottleReasonsMatchTheModelEnum(t *testing.T) {
 	if ValidThrottleReason("NotAReason") {
 		t.Error("ValidThrottleReason accepted a made-up reason")
 	}
+}
+
+// The 402 body is recorded and names no number and no knob, so the only place
+// an operator can learn why a run was rejected is the log. This is the line
+// that would have saved twenty UAT cases' worth of diagnosis.
+func TestExplainQuotaNamesTheNumbersAndTheKnob(t *testing.T) {
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+
+	ExplainQuota(log, 4096, 2048, 4096)
+
+	out := buf.String()
+	for _, want := range []string{
+		"account memory ceiling reached",
+		"allocatedMiB=4096",
+		"requestedMiB=2048",
+		"ceilingMiB=4096",
+		"-max-account-memory-mib",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("log line is missing %q:\n%s", want, out)
+		}
+	}
+}
+
+// A nil logger is the zero value a caller that never wired one has, and it
+// must not panic on the rejection path.
+func TestExplainQuotaToleratesNilLogger(t *testing.T) {
+	ExplainQuota(nil, 1, 2, 3)
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -30,7 +31,13 @@ type ImageResolver interface {
 type Quota interface {
 	AllowMemory(currentMiB, wantMiB int) bool
 	AllowMicrovm(current int) bool
+	// CeilingMiB reports the configured ceiling, for the diagnostic log when
+	// a run is rejected. The recorded 402 body names no number.
+	CeilingMiB() int
 }
+
+// Log, when set, receives the diagnostic explaining a quota rejection.
+var Log *slog.Logger
 
 func Register(srv *api.Server, svc *Service, images ImageResolver, quota Quota) {
 	h := &handlers{svc: svc, images: images, quota: quota}
@@ -115,6 +122,7 @@ func (h *handlers) run(w http.ResponseWriter, r *http.Request) {
 		want := h.images.MemoryMiB(region, *req.ImageIdentifier)
 		allocated, live := h.svc.Allocated(region)
 		if !h.quota.AllowMemory(allocated, want) || !h.quota.AllowMicrovm(live) {
+			limits.ExplainQuota(Log, allocated, want, h.quota.CeilingMiB())
 			limits.WriteQuotaExceeded(w, "")
 			return
 		}
