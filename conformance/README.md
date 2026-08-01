@@ -71,6 +71,19 @@ A failing step halts the rest of its scenario, because whatever the later steps 
 
 It exempts nothing else. A step that genuinely fails still halts its scenario however it is marked. Do not mark a step that carries `capture`: the vars it would have set go missing and the failure resurfaces several steps later, a long way from its cause.
 
+## Measuring a target that is far from green
+
+A failing step halts its scenario, which is right for a gate and wrong for a survey. Pointing the suite at a partial implementation, one divergence in a `create` step hides every divergence behind it, and the target then gets improved one slow rebuild at a time — each round revealing exactly one more thing.
+
+`-keep-going` lets a scenario continue past a step whose **body** diverged from its fixture:
+
+```sh
+go run ./conformance/cmd/conformance -endpoint http://localhost:4599 \
+    -tier load-bearing -tags subset:floci -keep-going
+```
+
+It is a measuring aid, not a softer gate. Only a body mismatch is survivable, because the request still succeeded and the resource still exists, so the captures are good and later steps have something to act on. A wrong status, a wrong error type, or a poll that never settles still halts the scenario — nothing after those can be trusted. Diverging steps are still reported as failures and the exit status is unchanged, so this is safe to leave out of CI and useful to reach for when a second implementation is being brought up.
+
 ## Rejected fixtures
 
 A fixture renamed to `<step>.json.rejected-<reason>` is a recording the suite refuses to treat as truth, because it captured the recording *account* rather than the service. They are kept rather than deleted: each one is evidence, and each cost a live session.

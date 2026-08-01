@@ -232,6 +232,113 @@ func TestOptionalStepStillHaltsOnFailure(t *testing.T) {
 	}
 }
 
+// -keep-going exists so one run reports every divergence instead of the
+// first. A body that diverges from its fixture still came from a request the
+// target accepted, so the resource exists and the captures are good.
+func TestKeepGoingContinuesPastADivergingBody(t *testing.T) {
+	srv := stub()
+	defer srv.Close()
+	dir, fixtures := t.TempDir(), t.TempDir()
+	writeScenario(t, dir, "40-keep.json", Scenario{
+		ID:   "keep",
+		Tags: []string{"documented-only"},
+		Steps: []Step{
+			{
+				Name: "create", Operation: "CreateMicrovmImage",
+				Method: "POST", Path: "/2025-09-09/microvm-images",
+				Body:    json.RawMessage(`{"name":"img1"}`),
+				Expect:  Expect{Status: 201},
+				Capture: map[string]string{"imageName": "name"},
+			},
+			{
+				Name: "after", Operation: "GetMicrovmImage",
+				Method: "GET", Path: "/2025-09-09/microvm-images/${imageName}",
+				Expect: Expect{Status: 200},
+			},
+		},
+	})
+	// A fixture the stub's create response cannot match.
+	if err := os.MkdirAll(filepath.Join(fixtures, "keep"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fixtures, "keep", "create.json"),
+		[]byte(`{"name":"img1","state":"CREATING","somethingElse":"the target does not send this"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Without the flag the divergence halts the scenario.
+	r := newTestRunner(t, srv.URL, dir, fixtures, false, nil)
+	scenarios, err := r.LoadScenarios()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := outcomes(r.Run(scenarios))
+	if got["keep/create"] != Fail {
+		t.Fatalf("create: got %s, want fail", got["keep/create"])
+	}
+	if got["keep/after"] != Skipped {
+		t.Errorf("after: got %s, want skipped without -keep-going", got["keep/after"])
+	}
+
+	// With it, the scenario runs on — and `after` only resolves at all if the
+	// capture was taken off the diverging body.
+	r2 := New(Config{
+		Endpoint: srv.URL, CasesDir: dir, FixturesDir: fixtures, KeepGoing: true,
+		Credentials: aws.Credentials{AccessKeyID: "test", SecretAccessKey: "test"},
+	})
+	scenarios2, err := r2.LoadScenarios()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got2 := outcomes(r2.Run(scenarios2))
+	if got2["keep/create"] != Fail {
+		t.Errorf("create: got %s, want fail — -keep-going measures, it does not forgive", got2["keep/create"])
+	}
+	if got2["keep/after"] != Pass {
+		t.Errorf("after: got %s, want pass", got2["keep/after"])
+	}
+}
+
+// Only a diverging body is survivable. A wrong status means the request did
+// not do what the step said, so nothing after it can be trusted.
+func TestKeepGoingStillHaltsOnAWrongStatus(t *testing.T) {
+	srv := stub()
+	defer srv.Close()
+	dir := t.TempDir()
+	writeScenario(t, dir, "41-keep-status.json", Scenario{
+		ID:   "keep-status",
+		Tags: []string{"documented-only"},
+		Steps: []Step{
+			{
+				Name: "wrong-status", Operation: "GetMicrovmImage",
+				Method: "GET", Path: "/2025-09-09/microvm-images/img1",
+				Expect: Expect{Status: 404}, // the stub answers 200
+			},
+			{
+				Name: "after", Operation: "GetMicrovmImage",
+				Method: "GET", Path: "/2025-09-09/microvm-images/img1",
+				Expect: Expect{Status: 200},
+			},
+		},
+	})
+
+	r := New(Config{
+		Endpoint: srv.URL, CasesDir: dir, FixturesDir: t.TempDir(), KeepGoing: true,
+		Credentials: aws.Credentials{AccessKeyID: "test", SecretAccessKey: "test"},
+	})
+	scenarios, err := r.LoadScenarios()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := outcomes(r.Run(scenarios))
+	if got["keep-status/wrong-status"] != Fail {
+		t.Fatalf("wrong-status: got %s, want fail", got["keep-status/wrong-status"])
+	}
+	if got["keep-status/after"] != Skipped {
+		t.Errorf("after: got %s, want skipped — a wrong status is not survivable", got["keep-status/after"])
+	}
+}
+
 func TestTagFilter(t *testing.T) {
 	srv := stub()
 	defer srv.Close()
