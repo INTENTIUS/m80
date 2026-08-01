@@ -115,7 +115,7 @@ KubeMicroVM's Robot Framework UAT — 63 cases written for a live EKS cluster an
 | ⚠️ | 08 Memory Sizing | 5/6 |
 | ⚠️ | 99 Final Cleanup | 1/2 |
 
-None of the sixteen failures is m80 answering differently from real AWS. Four reach past the endpoint override to real AWS through `microvm --direct`; four need a VM endpoint hostname that resolves inside the cluster; three want an IAM decision m80 refuses to make by design; five are teardown and drift cases still being run down. The harness, every deviation from the upstream UAT, and the full breakdown are in [uat/README.md](uat/README.md).
+None of the sixteen failures is m80 answering differently from real AWS. Four reach past the endpoint override to real AWS through `microvm --direct`; four lose a race between the operator's ~60s resync and the UAT's 60s timeout; three want an IAM decision m80 refuses to make by design; five are teardown and drift cases still being run down. The harness, every deviation from the upstream UAT, and the full breakdown are in [uat/README.md](uat/README.md).
 
 ## Development
 

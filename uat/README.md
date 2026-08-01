@@ -69,7 +69,11 @@ Not one is a case where m80 answered differently from real AWS. They fall into f
 
 **Reaches past the endpoint override to real AWS (4).** `QS-06`, `QS-07`, `NET-02`, `AUTO-02`. All go through `microvm --direct`, a debug flag that deliberately builds its own SDK client and honours neither `AWS_MICROVM_ENDPOINT` nor `AWS_ENDPOINT_URL`. The giveaway is the error: `403 The security token included in the request is invalid` carrying a genuine AWS request id. Untestable against any emulator, not just m80.
 
-**Needs the VM endpoint to resolve (4).** `RBAC-05`, `NET-01`, `NET-04`, `MEM-07`. The hostname m80 hands out resolves to real AWS from inside the cluster, so the curl never arrives. Tracked as [#45](https://github.com/INTENTIUS/m80/issues/45) — a DNS shim in this harness is probably the fix.
+**Lose a race with the operator's resync (4).** `RBAC-05`, `NET-01`, `NET-04`, `MEM-07`, all reporting `Endpoint for <vm> did not resolve within 60s`. "Resolve" there is not DNS — the UAT polls the CR field `.status.endpointUrl`. The VM reaches `Running` in seconds, but the operator leaves that field at `PENDING` until its next reconcile and then fills it in correctly. Measured twice: **65s and 61s, against a 60s allowance.**
+
+This is not m80 being too fast. Raising `-build-delay` tenfold moved the number by four seconds, which is noise against a ~60s cycle — the interval belongs to the operator, not to how quickly the target answers. The same race would be just as tight against real AWS.
+
+Separately and still true: the hostname m80 hands out resolves to *real AWS* from inside the cluster, so a pod that curls a VM endpoint leaves the cluster rather than reaching m80. That blocks the step after this one. [#45](https://github.com/INTENTIUS/m80/issues/45) tracks the DNS shim.
 
 **Assumes AWS-side identity (3).** `Pod Identity Association Exists` — there is no Pod Identity on k3d. `RBAC-06` and `INJ-08` expect an authorization decision; m80 accepts and echoes IAM without ever evaluating it, which `docs/scope.md` refuses on purpose.
 
