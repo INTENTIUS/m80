@@ -71,6 +71,14 @@ A failing step halts the rest of its scenario, because whatever the later steps 
 
 It exempts nothing else. A step that genuinely fails still halts its scenario however it is marked. Do not mark a step that carries `capture`: the vars it would have set go missing and the failure resurfaces several steps later, a long way from its cause.
 
+## The floci subset
+
+The `subset:floci` slice is the CFN-sufficient acceptance gate, meant to be run from another repo's CI against any endpoint. Its invocation, and a per-case map of which CloudFormation behavior each step backs, are in [SUBSET-FLOCI.md](SUBSET-FLOCI.md).
+
+```sh
+just subset-floci http://localhost:4566
+```
+
 ## Measuring a target that is far from green
 
 A failing step halts its scenario, which is right for a gate and wrong for a survey. Pointing the suite at a partial implementation, one divergence in a `create` step hides every divergence behind it, and the target then gets improved one slow rebuild at a time — each round revealing exactly one more thing.

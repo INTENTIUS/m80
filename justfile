@@ -67,3 +67,9 @@ dist:
             -ldflags "{{ldflags}}" -o "dist/m80_${os}_${arch}" ./cmd/m80
     done
     cd dist && shasum -a 256 m80_* > checksums.txt && cat checksums.txt
+
+# Run the floci subset against any endpoint — the CFN-sufficient acceptance
+# gate, documented in conformance/SUBSET-FLOCI.md. Exit status is the result.
+subset-floci endpoint="http://localhost:4566":
+    go run ./conformance/cmd/conformance -endpoint {{endpoint}} \
+        -tags subset:floci -tier load-bearing -poll-timeout 20
