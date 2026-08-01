@@ -109,22 +109,22 @@ Anything running more than two VMs at once — a ReplicaSet, an operator test su
 
 ## Operator proof
 
-KubeMicroVM's Robot Framework UAT — 63 cases written for a live EKS cluster and a real AWS account — runs on k3d against m80. **47 of 63 pass**, run 2026-08-01 against m80 v0.1.0 and operator 1.0.11.
+KubeMicroVM's Robot Framework UAT — 63 cases written for a live EKS cluster and a real AWS account — runs on k3d against m80. **50 of 63 pass**, run 2026-08-01 against m80 v0.1.0 and operator 1.0.11.
 
 | | Suite | Passed |
 |---|---|---|
 | ⚠️ | 00 Cluster Setup | 6/7 |
-| ⚠️ | 01 Quick Start | 6/9 |
+| ⚠️ | 01 Quick Start | 7/9 |
 | ⚠️ | 02 RBAC | 6/8 |
 | ⚠️ | 03 Networking | 2/5 |
 | ⚠️ | 04 Pod Token Injection | 8/9 |
 | ⚠️ | 05 ReplicaSet | 5/6 |
 | ✅ | 06 MicroVMClass | 6/6 |
-| ⚠️ | 07 Drift & Auto-Suspend | 2/5 |
+| ⚠️ | 07 Drift & Auto-Suspend | 4/5 |
 | ⚠️ | 08 Memory Sizing | 5/6 |
 | ⚠️ | 99 Final Cleanup | 1/2 |
 
-None of the sixteen failures is m80 answering differently from real AWS. Four reach past the endpoint override to real AWS through `microvm --direct`; four lose a race between the operator's ~60s resync and the UAT's 60s timeout; three want an IAM decision m80 refuses to make by design; five are teardown and drift cases still being run down. The harness, every deviation from the upstream UAT, and the full breakdown are in [uat/README.md](uat/README.md).
+None of the thirteen failures is m80 answering differently from real AWS — and in three of them, m80 answering *exactly* as real AWS is what exposes a bug in the operator. Four reach the VM endpoint hostname, which resolves to real AWS rather than to m80; four lose a race between the operator's resync and the UAT's 60s timeout; two want an IAM decision m80 refuses to make by design; three hit an operator finalizer that never clears because terminated MicroVMs stay listed, exactly as the real service does. The harness, every deviation from the upstream UAT, and the full breakdown are in [uat/README.md](uat/README.md).
 
 ## Development
 

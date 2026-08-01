@@ -41,43 +41,43 @@ Every one of these is a difference between this harness and the EKS run the suit
 
 **The suite runs in a container, not on the host.** The `microvm` CLI is released for `linux/amd64` and `linux/arm64` only, so a macOS host cannot run the CLI-dependent cases at all. The runner container joins k3d's docker network and reaches the API server at its internal address.
 
+**Do not restart m80 under a live operator.** m80 holds everything in memory, so a restart makes every MicroVM it knew about return `404`. The operator then retries cleanup on the orphaned CRs every ten seconds forever and never removes its finalizer, leaving objects that cannot be deleted without `kubectl patch`. Tear the cluster down and bring it back up instead. Filed upstream-side in [#47](https://github.com/INTENTIUS/m80/issues/47).
+
+**The runner cannot resolve cluster DNS.** It is a container on k3d's docker network, not a pod, so `*.svc.cluster.local` does not resolve for it. Anything the suite drives with the AWS CLI — the drift cases terminate a MicroVM out of band that way — needs m80 reachable at a docker-network address, which is what the `m80-node` NodePort and `AWS_ENDPOINT_URL` are for. Without them the CLI builds a correct URL and simply cannot connect, and the drift cases fail as "no drift detected" with nothing pointing at the cause.
+
 **S3 sources are never fetched.** The image fixtures name an S3 bucket and key; m80 records the reference without fetching, so the fixtures need not exist. `ACCOUNT_ID` is `000000000000`, m80's account, so ARNs match what the operator reads back.
 
 ## Pass matrix
 
 <!-- matrix:start -->
-Run 2026-08-01 against m80 v0.1.0, operator 1.0.11, excluding the performance suite.
+Run 2026-08-01 against m80 v0.1.0 and operator 1.0.11, excluding the performance suite.
 
-**47 of 63 cases pass.**
+**50 of 63 cases pass.**
 
 | | Suite | Passed |
 |---|---|---|
 | ⚠️ | 00 Cluster Setup | 6/7 |
-| ⚠️ | 01 Quick Start | 6/9 |
+| ⚠️ | 01 Quick Start | 7/9 |
 | ⚠️ | 02 Rbac | 6/8 |
 | ⚠️ | 03 Networking | 2/5 |
 | ⚠️ | 04 Pod Token Injection | 8/9 |
 | ⚠️ | 05 Replicaset | 5/6 |
 | ✅ | 06 Microvm Class | 6/6 |
-| ⚠️ | 07 Drift Autosuspend | 2/5 |
+| ⚠️ | 07 Drift Autosuspend | 4/5 |
 | ⚠️ | 08 Memory Sizing | 5/6 |
 | ⚠️ | 99 Final Cleanup | 1/2 |
 
-### Why the sixteen fail
+### Why the thirteen fail
 
-Not one is a case where m80 answered differently from real AWS. They fall into four groups.
+None is m80 answering differently from real AWS. In two cases m80 answering *exactly* as real AWS is what exposes an operator bug.
 
-**Reaches past the endpoint override to real AWS (4).** `QS-06`, `QS-07`, `NET-02`, `AUTO-02`. All go through `microvm --direct`, a debug flag that deliberately builds its own SDK client and honours neither `AWS_MICROVM_ENDPOINT` nor `AWS_ENDPOINT_URL`. The giveaway is the error: `403 The security token included in the request is invalid` carrying a genuine AWS request id. Untestable against any emulator, not just m80.
+**Reach the endpoint but not m80 (4).** `QS-07`, `NET-02`, `INJ-08`, `AUTO-02` — all `Token authentication failed`. The token is minted by m80 correctly; the suite then curls `https://<uuid>.lambda-microvm.<region>.on.aws/`, that hostname resolves to *real AWS*, and AWS rejects an m80-issued token. The call never reaches m80. [#45](https://github.com/INTENTIUS/m80/issues/45) — and it needs wildcard DNS *and* TLS, not just DNS.
 
-**Lose a race with the operator's resync (4).** `RBAC-05`, `NET-01`, `NET-04`, `MEM-07`, all reporting `Endpoint for <vm> did not resolve within 60s`. "Resolve" there is not DNS — the UAT polls the CR field `.status.endpointUrl`. The VM reaches `Running` in seconds, but the operator leaves that field at `PENDING` until its next reconcile and then fills it in correctly. Measured twice: **65s and 61s, against a 60s allowance.**
+**Lose a race with the operator's resync (4).** `RBAC-05`, `NET-01`, `NET-04`, `MEM-07`, reporting `Endpoint for <vm> did not resolve within 60s`. Not DNS: the UAT polls the CR field `.status.endpointUrl`, which the operator leaves at `PENDING` until its next reconcile. Measured at 61–65s against a 60s allowance. Raising `-build-delay` tenfold moved it four seconds, so the interval is the operator's, and the race is as tight against real AWS.
 
-This is not m80 being too fast. Raising `-build-delay` tenfold moved the number by four seconds, which is noise against a ~60s cycle — the interval belongs to the operator, not to how quickly the target answers. The same race would be just as tight against real AWS.
+**Want an AWS-side identity decision (2).** `Pod Identity Association Exists` — none on k3d. `RBAC-06` expects `not authorized`; m80 accepts and echoes IAM without evaluating it, which `docs/scope.md` refuses on purpose.
 
-Separately and still true: the hostname m80 hands out resolves to *real AWS* from inside the cluster, so a pod that curls a VM endpoint leaves the cluster rather than reaching m80. That blocks the step after this one. [#45](https://github.com/INTENTIUS/m80/issues/45) tracks the DNS shim.
-
-**Assumes AWS-side identity (3).** `Pod Identity Association Exists` — there is no Pod Identity on k3d. `RBAC-06` and `INJ-08` expect an authorization decision; m80 accepts and echoes IAM without ever evaluating it, which `docs/scope.md` refuses on purpose.
-
-**Teardown and drift (5).** `QS-08`, `RS-06`, `DRIFT-01`, `DRIFT-02`, and the final cleanup check. A `rs-pool-…` MicroVM outlives its ReplicaSet, and the drift cases need a VM terminated behind the operator's back — m80 has that lever as a Go API but not over HTTP, so a suite running against the container cannot reach it. These are the group worth digging into next; they are the only ones that might yet turn up a genuine fidelity gap.
+**Hit an operator bug that m80's fidelity exposes (3).** `RS-06`, `99 Final Cleanup`, and `QS-08`. A deleted MicroVM CR keeps its finalizer forever while the operator logs `Cleaning up …` every ten seconds. The MicroVM is present and correctly `TERMINATED`, with `stateReason: "Success."`. The cleanup path appears to wait for it to *disappear* — and it never does, because **terminated MicroVMs stay listed**, which is recorded live behaviour. Against real AWS the same CR would hang for as long as AWS retains the VM. Reported in [#47](https://github.com/INTENTIUS/m80/issues/47).
 
 <!-- matrix:end -->
 
