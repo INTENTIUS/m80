@@ -8,11 +8,32 @@
 | `AWS::Lambda::MicrovmImage` and `AWS::Lambda::NetworkConnector` through CloudFormation | floci | CFN emulation can only live where the CFN engine lives. chant's `MicrovmApp` and the kit's image stack deploy through CFN |
 | Conformance contract | shared suite | See [conformance.md](conformance.md) |
 
-They are not alternatives, they answer different questions. m80 answers "does the operator do the right thing against this API", floci answers "does this CloudFormation template provision". The [KubeMicroVM harness](kubemicrovm.md) needs only the first, and runs m80 alone.
+They are not alternatives. They cover different layers of the same deployment, and they compose.
+
+## The three layers of a KubeMicroVM deployment
+
+Measured on 2026-08-02 by reading what KubeMicroVM actually calls, not by reasoning about it.
+
+**Layer 1, the prerequisites.** An S3 bucket holding the code artifact, and an IAM build role the MicroVMs service assumes to read it. Their `setup-test-env.sh` creates exactly this. It is S3, IAM and STS calls, and stock floci serves all of them: their script runs against floci unmodified and produces a real bucket, a real role with trust and permissions policies, and an uploaded artifact.
+
+**Layer 2, what the operator calls.** Four AWS SDK clients and no others. There is no `S3Client`, `IamClient`, `Ec2Client` or `CloudFormationClient` anywhere in KubeMicroVM.
+
+| Client | For | m80 |
+|---|---|---|
+| `lambdamicrovms` | everything the CRs do | 24 operations |
+| `lambdacore` | network connectors | 5 operations |
+| `sts` | the boot connectivity gate | `-serve-sts` shim |
+| `servicequotas` | `QuotaDiscovery`, off by default | not emulated |
+
+**They meet cleanly.** Both emulators use account `000000000000`, so floci's output feeds m80 with nothing rewritten: a bucket and role ARN minted by floci go straight into `CreateMicrovmImage` on m80, which echoes the role back and builds to `SUCCESSFUL`.
+
+**Layer 3, what AWS does because of layer 2, is out of reach for both.** Handed a build role and an S3 URI, the real service assumes that role, fetches that object and builds an image. The same goes for the connector operator role and the ENIs EC2 creates. That work happens inside AWS's implementation of a service you are calling, so there is no request to intercept and no endpoint to override. m80 records the reference without fetching, and floci cannot do better. This is the boundary of local validation, and no amount of additional emulation moves it.
 
 ## Asymmetric scope
 
-The floci module implements the subset CFN provisioning needs: image create, get and delete, build lifecycle enough for stack create and delete to converge, and network connectors, since `MicrovmApp` emits `AWS::Lambda::NetworkConnector` when VPC egress is requested. It does not need tokens, endpoint stubs, idle timers, or drift levers.
+Layer 1 needs nothing from the proposed floci MicroVMs module: S3, IAM and STS are already floci's. That module is a separate concern, a second implementation of the API m80 implements, so `AWS::Lambda::MicrovmImage` and `AWS::Lambda::NetworkConnector` can be provisioned through CloudFormation.
+
+It implements the subset CFN provisioning needs: image create, get and delete, build lifecycle enough for stack create and delete to converge, and network connectors, since `MicrovmApp` emits `AWS::Lambda::NetworkConnector` when VPC egress is requested. It does not need tokens, endpoint stubs, idle timers, or drift levers.
 
 Scoping it narrow keeps the second implementation cheap and the drift surface small. m80 aims at both tiers because exactness is nearly free for a purpose-built emulator; the module is gated on the load-bearing set only.
 
