@@ -82,7 +82,17 @@ curl "$M80/" -H "Host: $(curl -s "$M80/2025-09-09/microvms/$VM" | jq -r .endpoin
 curl "$M80/_m80/vm/$VM/" -H "X-aws-proxy-auth: $TOK"
 ```
 
-The response body is m80's default stub, or whatever `-vm-stub-body <file>` points at. Either way an `X-M80-State-Marker` header carries a counter that survives suspend and resume, so a client can prove the VM kept its state. A suspended VM whose idle policy sets `autoResumeEnabled` wakes when its endpoint is called.
+The response body is m80's default stub, or whatever `-vm-stub-body <file>` points at — against real AWS this is the image's own app, so it is the one part of the endpoint m80 cannot copy. Either way an `X-M80-State-Marker` header carries a counter that survives suspend and resume, so a client can prove the VM kept its state.
+
+Everything else about the endpoint is recorded rather than guessed, as of 2026-08-01:
+
+| Situation | Answer |
+|---|---|
+| No token, or one that cannot be parsed | `403 Request missing authentication` |
+| A token for another VM, or a hostname naming none | `403 Token authentication failed` |
+| A token that does not grant the port | `200` — `allowedPorts` does not gate this endpoint |
+| Suspended, `autoResumeEnabled` set | `200`, and the VM is `RUNNING` afterwards |
+| Suspended without it, or terminated | `502` with an empty body |
 
 ## Throttles and quotas
 

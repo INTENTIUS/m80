@@ -36,6 +36,10 @@ func (s *stubVMs) LookupEndpoint(host string) (string, string, bool) {
 	return region, vmID, true
 }
 
+func (s *stubVMs) IsEndpointHost(host string) bool {
+	return strings.HasPrefix(host, vmHost)
+}
+
 func (s *stubVMs) LookupID(id string) (string, bool) {
 	if s.missing || id != vmID {
 		return "", false
@@ -322,15 +326,39 @@ func TestEndpointAdvancesTheMarker(t *testing.T) {
 	}
 }
 
-func TestEndpointRejectsMissingAndBadTokens(t *testing.T) {
+// Recorded: a missing token and an unparseable one are the same failure, and
+// both are 403. The 401 m80 used to answer for a missing header was a guess,
+// and a reasonable one — a client retrying with a fresh token would want them
+// apart — but AWS does not distinguish them.
+func TestEndpointRejectsMissingAndBadTokensIdentically(t *testing.T) {
 	h := newHarness(t, "RUNNING")
 	h.issue(t, 60, allPorts()) // a valid token exists, just not the one presented
 
-	if rec, _ := h.hit("", vmHost); rec.Code != http.StatusUnauthorized {
-		t.Errorf("no token: status %d, want 401", rec.Code)
+	for _, presented := range []string{"", "not-a-token"} {
+		rec, _ := h.hit(presented, vmHost)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("token %q: status %d, want 403", presented, rec.Code)
+		}
+		if got := rec.Body.String(); got != "Request missing authentication" {
+			t.Errorf("token %q: body %q", presented, got)
+		}
 	}
-	if rec, _ := h.hit("not-a-token", vmHost); rec.Code != http.StatusForbidden {
-		t.Errorf("bad token: status %d, want 403", rec.Code)
+}
+
+// A hostname shaped like an endpoint but naming no VM is refused the same way
+// a token for the wrong VM is, rather than falling through to the control
+// plane's 404. Recorded against a made-up uuid under the real domain.
+func TestEndpointUnknownHostRejectsLikeAMismatchedToken(t *testing.T) {
+	h := newHarness(t, "RUNNING")
+	tok := h.issue(t, 60, allPorts())
+	h.vms.missing = true
+
+	rec, _ := h.hit(tok, vmHost)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status %d, want 403", rec.Code)
+	}
+	if got := rec.Body.String(); got != "Token authentication failed" {
+		t.Errorf("body %q", got)
 	}
 }
 
@@ -347,39 +375,18 @@ func TestEndpointRejectsExpiredToken(t *testing.T) {
 	}
 }
 
-// allowedPorts is required and load-bearing: a token scoped to one port must
-// not authorize another, or m80 would pass requests the service rejects.
-func TestEndpointEnforcesAllowedPorts(t *testing.T) {
+// allowedPorts does not gate the endpoint the control plane hands out. A
+// token granting only 8080 was recorded serving 443, so the earlier
+// enforcement here — reasonable as it looked — would have failed requests
+// real AWS answers. The grant is still parsed and validated at issue time,
+// because the control plane does reject a malformed one.
+func TestEndpointDoesNotEnforceAllowedPorts(t *testing.T) {
 	h := newHarness(t, "RUNNING")
 	tok := h.issue(t, 60, []any{map[string]any{"port": 8080}})
 
-	if rec, _ := h.hit(tok, vmHost+":8080"); rec.Code != http.StatusOK {
-		t.Errorf("granted port: status %d, want 200", rec.Code)
-	}
-	if rec, _ := h.hit(tok, vmHost+":9000"); rec.Code != http.StatusForbidden {
-		t.Errorf("ungranted port: status %d, want 403", rec.Code)
-	}
-	// No port on the Host header is judged as 443, the endpoint the control
-	// plane hands out.
-	if rec, _ := h.hit(tok, vmHost); rec.Code != http.StatusForbidden {
-		t.Errorf("default port: status %d, want 403 for a token scoped to 8080", rec.Code)
-	}
-}
-
-func TestEndpointHonoursPortRanges(t *testing.T) {
-	h := newHarness(t, "RUNNING")
-	tok := h.issue(t, 60, []any{map[string]any{
-		"range": map[string]any{"startPort": 8000, "endPort": 8100}}})
-
-	for _, tc := range []struct {
-		port string
-		want int
-	}{
-		{"8000", http.StatusOK}, {"8050", http.StatusOK}, {"8100", http.StatusOK},
-		{"7999", http.StatusForbidden}, {"8101", http.StatusForbidden},
-	} {
-		if rec, _ := h.hit(tok, vmHost+":"+tc.port); rec.Code != tc.want {
-			t.Errorf("port %s: status %d, want %d", tc.port, rec.Code, tc.want)
+	for _, host := range []string{vmHost, vmHost + ":8080", vmHost + ":9000"} {
+		if rec, _ := h.hit(tok, host); rec.Code != http.StatusOK {
+			t.Errorf("host %s: status %d, want 200", host, rec.Code)
 		}
 	}
 }
@@ -402,9 +409,9 @@ func TestEndpointRejectsShellToken(t *testing.T) {
 	}
 }
 
-// The auto-resume path, inferred rather than recorded: a suspended VM issues
-// tokens so a client can wake it by calling it, and autoResumeEnabled is the
-// member that says whether it may.
+// The auto-resume path, and the one guess that turned out right: calling a
+// suspended VM's endpoint wakes it when its idle policy allows, and the VM
+// reads RUNNING afterwards.
 func TestEndpointAutoResumesSuspendedVM(t *testing.T) {
 	h := newHarness(t, "RUNNING")
 	tok := h.issue(t, 60, allPorts())
@@ -428,31 +435,33 @@ func TestEndpointRefusesSuspendedVMWithoutAutoResume(t *testing.T) {
 	h.vms.state, h.vms.autoResume = "SUSPENDED", false
 
 	rec, _ := h.hit(tok, vmHost)
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Errorf("status %d, want 503", rec.Code)
+	if rec.Code != http.StatusBadGateway {
+		t.Errorf("status %d, want 502", rec.Code)
+	}
+	if rec.Body.Len() != 0 {
+		t.Errorf("body %q, want empty", rec.Body.String())
 	}
 	if h.vms.woken != 0 {
 		t.Error("woke a VM whose idle policy does not allow it")
 	}
 }
 
-func TestEndpointOnTerminatedVMIsGone(t *testing.T) {
-	h := newHarness(t, "RUNNING")
-	tok := h.issue(t, 60, allPorts())
-	h.vms.state = "TERMINATED"
+// A terminated VM answers 502 with an empty body, not the 410 m80 guessed.
+// PENDING is not recorded and shares the answer, since every unavailable VM
+// that was observed gave this one.
+func TestEndpointOnUnavailableVMIsBadGateway(t *testing.T) {
+	for _, state := range []string{"TERMINATED", "PENDING"} {
+		h := newHarness(t, "RUNNING")
+		tok := h.issue(t, 60, allPorts())
+		h.vms.state = state
 
-	if rec, _ := h.hit(tok, vmHost); rec.Code != http.StatusGone {
-		t.Errorf("status %d, want 410", rec.Code)
-	}
-}
-
-func TestEndpointOnPendingVMIsUnavailable(t *testing.T) {
-	h := newHarness(t, "RUNNING")
-	tok := h.issue(t, 60, allPorts())
-	h.vms.state = "PENDING"
-
-	if rec, _ := h.hit(tok, vmHost); rec.Code != http.StatusServiceUnavailable {
-		t.Errorf("status %d, want 503", rec.Code)
+		rec, _ := h.hit(tok, vmHost)
+		if rec.Code != http.StatusBadGateway {
+			t.Errorf("%s: status %d, want 502", state, rec.Code)
+		}
+		if rec.Body.Len() != 0 {
+			t.Errorf("%s: body %q, want empty", state, rec.Body.String())
+		}
 	}
 }
 

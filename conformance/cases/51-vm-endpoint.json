@@ -51,7 +51,12 @@
       "method": "POST",
       "path": "/2025-09-09/microvms",
       "body": {
-        "imageIdentifier": "${imageArn}"
+        "imageIdentifier": "${imageArn}",
+        "idlePolicy": {
+          "autoResumeEnabled": true,
+          "maxIdleDurationSeconds": 900,
+          "suspendedDurationSeconds": 1800
+        }
       },
       "expect": {
         "status": 200
@@ -84,7 +89,12 @@
       "method": "POST",
       "path": "/2025-09-09/microvms",
       "body": {
-        "imageIdentifier": "${imageArn}"
+        "imageIdentifier": "${imageArn}",
+        "idlePolicy": {
+          "autoResumeEnabled": false,
+          "maxIdleDurationSeconds": 900,
+          "suspendedDurationSeconds": 1800
+        }
       },
       "expect": {
         "status": 200
@@ -106,6 +116,9 @@
         "equals": "RUNNING",
         "timeoutSec": 600,
         "intervalSec": 5
+      },
+      "capture": {
+        "endpointB": "endpoint"
       }
     },
     {
@@ -203,6 +216,9 @@
       "path": "/",
       "headers": {
         "X-aws-proxy-auth": "${tokenPort8080}"
+      },
+      "expect": {
+        "status": 200
       }
     },
     {
@@ -213,6 +229,98 @@
       "path": "/",
       "headers": {
         "X-aws-proxy-auth": "${tokenA}"
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "name": "suspend-a",
+      "operation": "SuspendMicrovm",
+      "method": "POST",
+      "path": "/2025-09-09/microvms/${vmA}/suspend",
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "name": "get-a-until-suspended",
+      "operation": "GetMicrovm",
+      "method": "GET",
+      "path": "/2025-09-09/microvms/${vmA}",
+      "expect": {
+        "status": 200
+      },
+      "until": {
+        "path": "state",
+        "equals": "SUSPENDED",
+        "timeoutSec": 600,
+        "intervalSec": 5
+      }
+    },
+    {
+      "name": "endpoint-suspended-auto-resume",
+      "operation": "VmEndpoint",
+      "method": "GET",
+      "baseURL": "https://${endpointA}",
+      "path": "/",
+      "headers": {
+        "X-aws-proxy-auth": "${tokenA}"
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "name": "get-a-after-endpoint-call",
+      "operation": "GetMicrovm",
+      "method": "GET",
+      "path": "/2025-09-09/microvms/${vmA}",
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "name": "suspend-b",
+      "operation": "SuspendMicrovm",
+      "method": "POST",
+      "path": "/2025-09-09/microvms/${vmB}/suspend",
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "name": "get-b-until-suspended",
+      "operation": "GetMicrovm",
+      "method": "GET",
+      "path": "/2025-09-09/microvms/${vmB}",
+      "expect": {
+        "status": 200
+      },
+      "until": {
+        "path": "state",
+        "equals": "SUSPENDED",
+        "timeoutSec": 600,
+        "intervalSec": 5
+      }
+    },
+    {
+      "name": "endpoint-suspended-no-auto-resume",
+      "operation": "VmEndpoint",
+      "method": "GET",
+      "baseURL": "https://${endpointB}",
+      "path": "/",
+      "headers": {
+        "X-aws-proxy-auth": "${tokenB}"
+      }
+    },
+    {
+      "name": "get-b-after-endpoint-call",
+      "operation": "GetMicrovm",
+      "method": "GET",
+      "path": "/2025-09-09/microvms/${vmB}",
+      "expect": {
+        "status": 200
       }
     },
     {
@@ -280,6 +388,16 @@
       "path": "/2025-09-09/microvm-images/${imageArn}",
       "expect": {
         "status": 200
+      }
+    },
+    {
+      "name": "endpoint-unknown-host",
+      "operation": "VmEndpoint",
+      "method": "GET",
+      "baseURL": "https://00000000-0000-0000-0000-000000000000.lambda-microvm.${region}.on.aws",
+      "path": "/",
+      "headers": {
+        "X-aws-proxy-auth": "${tokenA}"
       }
     }
   ]

@@ -1,0 +1,5 @@
+{
+  "authToken": {
+    "X-aws-proxy-auth": "REDACTED"
+  }
+}

@@ -252,21 +252,42 @@ func (s *Service) Touch(vm *VM) uint64 {
 // would be a second thing to keep in step with every create and delete, which
 // for an emulator is the worse trade.
 func (s *Service) LookupEndpoint(host string) (region, id string, ok bool) {
+	region, shaped := endpointRegion(host)
+	if !shaped {
+		return "", "", false
+	}
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
 	}
-	parts := strings.Split(host, ".")
-	// <uuid> . lambda-microvm . <region> . on . aws
-	if len(parts) != 5 || parts[1] != "lambda-microvm" || parts[3] != "on" || parts[4] != "aws" {
-		return "", "", false
-	}
-	region = parts[2]
 	for _, vm := range s.List(region) {
 		if strings.EqualFold(vm.Endpoint, host) {
 			return region, vm.ID, true
 		}
 	}
 	return "", "", false
+}
+
+// IsEndpointHost reports whether a hostname is shaped like a per-VM endpoint,
+// whether or not a VM currently answers to it. The endpoint has to claim
+// those hosts either way: real AWS answers an unknown endpoint host with the
+// same rejection as a token for the wrong VM, so falling through to the
+// control-plane mux and getting its 404 would be the wrong answer.
+func (s *Service) IsEndpointHost(host string) bool {
+	_, shaped := endpointRegion(host)
+	return shaped
+}
+
+// endpointRegion reads the region out of <uuid>.lambda-microvm.<region>.on.aws
+// and reports whether the hostname has that shape at all.
+func endpointRegion(host string) (region string, ok bool) {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	parts := strings.Split(host, ".")
+	if len(parts) != 5 || parts[1] != "lambda-microvm" || parts[3] != "on" || parts[4] != "aws" {
+		return "", false
+	}
+	return parts[2], true
 }
 
 // LookupID finds which region holds a VM, for the endpoint's path-prefix form
