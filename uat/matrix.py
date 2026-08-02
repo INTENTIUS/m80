@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Turn a Robot Framework output.xml into the pass matrix for the README.
+"""Turn a Robot Framework output.xml into the pass matrix for the guide.
 
 The matrix is per suite, not per case: a reader wants to know which areas of
 the operator work against m80, and a 60-row table of individual case names

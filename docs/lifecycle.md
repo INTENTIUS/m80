@@ -1,6 +1,6 @@
 # Lifecycle
 
-The state machines are the product. Everything else is CRUD. All state strings below are the real enums, extracted 2026-07-29 from the vendored service model. Transitions between them are still conformance-recording targets, the enums bound the space but do not order it.
+The state machines are the product. Everything else is CRUD. All state strings below are the real enums, extracted 2026-07-29 from the vendored service model. The enums bound the space; the transitions between them come from recording the live service, and are marked where they do.
 
 ## Images
 
@@ -67,4 +67,6 @@ KubeMicroVM's drift detection and auto-suspend features watch for the service ch
 
 Two levers exist today, and both are Go APIs rather than endpoints: `images.Service.FailNextBuild` forces the next build of a named image to `FAILED`, and `connectors.Service.FailNext` settles the next connector of a named connector into `FAILED` carrying any of the seven reason codes. Neither can be provoked against real AWS on demand — you cannot ask EC2 to run a subnet out of addresses — which is the whole reason they exist.
 
-Being Go-only bounds what they are good for. A test that imports m80 can drive them; a UAT pointed at the container cannot reach them at all, so the offline drift run that motivates them ([#18](https://github.com/INTENTIUS/m80/issues/18)) needs an HTTP surface that is not built yet. Suspending or terminating a VM behind an operator's back needs no lever in any case — those are ordinary API calls that any test can make.
+Being Go-only bounds what they are good for. A test that imports m80 can drive them; a UAT pointed at the container cannot reach them at all.
+
+That was originally thought to block the offline drift run behind [#18](https://github.com/INTENTIUS/m80/issues/18). It did not: drift is provoked with ordinary `SuspendMicrovm` and `TerminateMicrovm` calls, which any client can make, and the [KubeMicroVM harness](kubemicrovm.md) does exactly that. The gap is real for a different reason. Failure paths are what a consumer most needs a test target for, and they are the ones m80 cannot currently be asked to take, so a test wanting to see the operator handle a failed image build has no way to cause one. Tracked as [#56](https://github.com/INTENTIUS/m80/issues/56).

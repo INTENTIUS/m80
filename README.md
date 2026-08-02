@@ -149,22 +149,9 @@ Anything running more than two VMs at once — a ReplicaSet, an operator test su
 
 ## Operator proof
 
-KubeMicroVM's Robot Framework UAT — 63 cases written for a live EKS cluster and a real AWS account — runs on k3d against m80. **50 of 63 pass**, run 2026-08-01 against m80 v0.1.0 and operator 1.0.11.
+KubeMicroVM's Robot Framework UAT is 63 cases written for a live EKS cluster and a real AWS account. It runs on k3d against m80 instead, and **50 of 63 pass**, measured 2026-08-01 against operator 1.0.11.
 
-| | Suite | Passed |
-|---|---|---|
-| ⚠️ | 00 Cluster Setup | 6/7 |
-| ⚠️ | 01 Quick Start | 7/9 |
-| ⚠️ | 02 RBAC | 6/8 |
-| ⚠️ | 03 Networking | 2/5 |
-| ⚠️ | 04 Pod Token Injection | 8/9 |
-| ⚠️ | 05 ReplicaSet | 5/6 |
-| ✅ | 06 MicroVMClass | 6/6 |
-| ⚠️ | 07 Drift & Auto-Suspend | 4/5 |
-| ⚠️ | 08 Memory Sizing | 5/6 |
-| ⚠️ | 99 Final Cleanup | 1/2 |
-
-None of the thirteen failures is m80 answering differently from real AWS — and in three of them, m80 answering *exactly* as real AWS is what exposes a bug in the operator. Four reach the VM endpoint hostname, which resolves to real AWS rather than to m80; four lose a race between the operator's resync and the UAT's 60s timeout; two want an IAM decision m80 refuses to make by design; three hit an operator finalizer that never clears because terminated MicroVMs stay listed, exactly as the real service does. The harness, every deviation from the upstream UAT, and the full breakdown are in [uat/README.md](uat/README.md).
+None of the thirteen failures is m80 answering differently from real AWS — and in three of them, m80 answering *exactly* as real AWS is what exposes a bug in the operator. Four reach the VM endpoint hostname, which resolves to real AWS rather than to m80; four lose a race between the operator's resync and the UAT's 60s timeout; two want an IAM decision m80 refuses to make by design; three hit an operator finalizer that never clears because terminated MicroVMs stay listed, exactly as the real service does. The harness, every deviation from the upstream UAT, and the full breakdown are in [docs/kubemicrovm.md](docs/kubemicrovm.md), which is also where to start if you want to stand the stack up yourself.
 
 ## Proving it works
 
@@ -179,7 +166,7 @@ The conformance suite runs in CI too, against a live binary. It compares every r
 
 ## Development
 
-Go 1.25, [just](https://github.com/casey/just) as the task runner. `just` lists the recipes; `just build`, `just test`, and `just fmt-check` match CI. The plan is tracked in [epic #22](https://github.com/INTENTIUS/m80/issues/22).
+Go 1.25, [just](https://github.com/casey/just) as the task runner. `just` lists the recipes; `just build`, `just test` and `just fmt-check` match CI. `just conformance` needs a running target. The plan is tracked in [epic #22](https://github.com/INTENTIUS/m80/issues/22).
 
 ## Design documents
 
@@ -189,5 +176,6 @@ Go 1.25, [just](https://github.com/casey/just) as the task runner. `just` lists 
 | [docs/api-surface.md](docs/api-surface.md) | The operations, their sources of truth, wire fidelity contract |
 | [docs/lifecycle.md](docs/lifecycle.md) | The VM and image state machines on an injected clock |
 | [docs/conformance.md](docs/conformance.md) | The language-agnostic suite shared with floci and real AWS |
-| [docs/floci.md](docs/floci.md) | Division of labor with floci, sequencing |
-| [docs/roadmap.md](docs/roadmap.md) | Milestones |
+| [docs/kubemicrovm.md](docs/kubemicrovm.md) | Standing the operator up against m80 on k3d, and the pass matrix |
+| [docs/floci.md](docs/floci.md) | Division of labor with floci |
+| [docs/roadmap.md](docs/roadmap.md) | Milestones and what is still open |

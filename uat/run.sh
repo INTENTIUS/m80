@@ -7,6 +7,22 @@
 # internal address.
 set -euo pipefail
 
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+    cat <<'USAGE'
+  KUBEMICROVM=/path/to/KubeMicroVM ./uat/run.sh [robot args...]
+
+Runs KubeMicroVM's UAT suite against the stack up.sh built. Extra arguments
+are passed through to Robot Framework, so a single suite can be selected with
+--suite, or a case with --test.
+
+Overridable by environment variable: CLUSTER, NS, REGION, ACCOUNT_ID,
+CHART_VERSION, RESULTS.
+
+Guide: docs/kubemicrovm.md
+USAGE
+    exit 0
+fi
+
 CLUSTER="${CLUSTER:-m80-uat}"
 NS="${NS:-kube-microvm}"
 REGION="${REGION:-us-east-1}"
