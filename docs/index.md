@@ -1,14 +1,20 @@
 # m80
 
-A standalone, stateful local emulator of the AWS Lambda MicroVMs API. Like LocalStack, but for Lambda MicroVMs. The M-80 is the most famous firecracker there is, and m80 emulates a Firecracker-backed service.
+**Check a KubeMicroVM deployment before it costs you anything.**
 
-A single static Go binary and distroless container that holds MicroVM images, VMs, tokens, and network connectors in memory, advances them through their lifecycle on an injected clock, and answers the real wire protocol so any SDK client works against it via endpoint override. It follows the pattern of [mudflaps](https://github.com/intentius/mudflaps) (Fly Machines) and [spritzer](https://github.com/intentius/spritzer) (Fly Sprites).
+Running the [KubeMicroVM](https://github.com/codriverlabs/KubeMicroVM) operator normally means an EKS cluster and an AWS account that bills you. m80 is a local emulator of the AWS Lambda MicroVMs API, so the same operator, unmodified, runs on k3d against your laptop. Apply real CRs and watch them reconcile without provisioning anything. [Standing up KubeMicroVM](kubemicrovm.md) is the walkthrough.
+
+Running their own 63-case UAT suite against m80 surfaced three issues in the operator, the sharpest being a finalizer that never clears after a successful terminate, so a deleted CR hangs forever. All three are filed upstream and acknowledged. None of them needed an AWS account to find.
+
+It emulates the control plane, so a MicroVM here is a record with a state machine and a clock: nothing fetches your artifact and nothing runs it. Configuration, reconciliation, lifecycle, RBAC, quotas and teardown are real; your workload is not. See [scope](scope.md).
+
+m80 is also a standalone target for anything speaking the MicroVMs API, not only the operator:
 
 ```sh
 docker run --rm -p 4290:4290 ghcr.io/intentius/m80
 ```
 
-The [README](https://github.com/INTENTIUS/m80#readme) has the quick start, from `docker run` to a running MicroVM.
+A single static Go binary and distroless container that holds MicroVM images, VMs, tokens, and network connectors in memory, advances them through their lifecycle on an injected clock, and answers the real wire protocol so any SDK client works against it via endpoint override. It follows the pattern of [mudflaps](https://github.com/intentius/mudflaps) (Fly Machines) and [spritzer](https://github.com/intentius/spritzer) (Fly Sprites). The [README](https://github.com/INTENTIUS/m80#readme) has the quick start, from `docker run` to a running MicroVM.
 
 ## Status
 

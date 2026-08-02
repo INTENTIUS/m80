@@ -1,10 +1,47 @@
 # m80
 
-A standalone, stateful local emulator of the AWS Lambda MicroVMs API. Like LocalStack, but for Lambda MicroVMs. The M-80 is the most famous firecracker there is, and m80 emulates a Firecracker-backed service.
+**Check a KubeMicroVM deployment before it costs you anything.**
 
-**Status: all 29 operations implemented.** The conformance suite runs 100 checks against fixtures recorded from live AWS, with nothing skipped and nothing unimplemented. See the [roadmap](docs/roadmap.md).
+Running the [KubeMicroVM](https://github.com/codriverlabs/KubeMicroVM) operator normally means an EKS cluster and an AWS account that bills you. m80 is a local emulator of the AWS Lambda MicroVMs API, so the same operator, unmodified, runs on k3d against your laptop. Apply real CRs and watch them reconcile without provisioning anything.
 
-## Quick start
+```sh
+just uat-up     # k3d + cert-manager + m80 + the operator, about two minutes
+```
+
+Then apply a `MicroVMImage` and a `MicroVM` and watch the operator drive them.
+
+One emulator, 8 MiB, next to the real operator on a real cluster. No AWS account, no credentials, no bill. The [guide](docs/kubemicrovm.md) has a worked example that goes from nothing to a running MicroVM.
+
+## Does it actually catch anything?
+
+Running KubeMicroVM's own 63-case UAT suite against m80 surfaced three issues in the operator, none of which needed an AWS account to find.
+
+The sharpest is a genuine bug: a MicroVM's finalizer is never removed after a successful terminate, so a deleted CR hangs forever and the operator logs `Cleaning up …` every ten seconds until someone patches the object by hand. Anyone who met that in production paid for a cluster to find it. The other two are that the operator cannot start against any emulated endpoint, and that its Helm chart silently drops env keys it does not recognise.
+
+All three are filed upstream and acknowledged by the maintainers: [#50](https://github.com/codriverlabs/KubeMicroVM/issues/50), [#51](https://github.com/codriverlabs/KubeMicroVM/issues/51), [#52](https://github.com/codriverlabs/KubeMicroVM/issues/52).
+
+## What it does and does not check
+
+m80 emulates the control plane, so a MicroVM here is a record with a state machine and a clock. Nothing fetches your artifact and nothing executes it.
+
+| Checked for real | Not checked |
+|---|---|
+| Does the CR reconcile, and to what | Whether your code runs |
+| Lifecycle: run, suspend, resume, terminate | Latency, throughput, load |
+| Drift detection and auto-suspend | Anything reading real output from the VM |
+| RBAC, admission webhooks, MicroVMClass | IAM actually deciding anything |
+| ReplicaSets, memory tiers, quota rejection | `microvm exec` into a shell |
+| Finalizers and teardown | |
+
+The Kubernetes half is entirely real: real cluster, real operator, real pods, real tokens injected into them. The MicroVM is where reality stops.
+
+Answers come from recording the live service rather than from reading docs and guessing. When the per-VM endpoint was finally recorded, four of nine reasonable-looking assumptions turned out to be wrong, including one where m80 rejected requests real AWS accepts. That is the failure mode an emulator has to design against, because a test suite that passes against a wrong emulator is worse than no emulator.
+
+**Status: released, v0.2.0.** All 29 operations implemented, the conformance suite runs 100 checks against fixtures recorded from live AWS with nothing skipped, and KubeMicroVM's UAT passes 50 of 63 with every failure accounted for. See the [roadmap](docs/roadmap.md).
+
+## Using it directly
+
+The operator is the reason m80 exists, but it is a standalone target for anything speaking the MicroVMs API. The M-80 is the most famous firecracker there is, and m80 emulates a Firecracker-backed service.
 
 ```sh
 docker run --rm -p 4290:4290 ghcr.io/intentius/m80
@@ -75,15 +112,17 @@ Nothing like it exists. Verified 2026-07-29 across moto, LocalStack (archived), 
 | Consumer | How |
 |----------|-----|
 | [KubeMicroVM](https://github.com/codriverlabs/KubeMicroVM) operator | SDK endpoint override, next to k3d, in their UAT and CI |
-| kubemicrovm-ops, a chant adoption kit for KubeMicroVM (in design) | Local end-to-end loop for install Op and lifecycle work |
+| kubemicrovm-ops, a chant adoption kit for KubeMicroVM | Local end-to-end loop for install and lifecycle work |
 | chant fly-style activities and behold demos | Accountless local apply |
 | Anyone building on the MicroVM SDK | A stateful test target instead of hand-rolled mocks |
 
 ## What it is not
 
-CloudFormation emulation of `AWS::Lambda::MicrovmImage` lives in floci, where the CFN engine is. m80 is the full-fidelity service emulator, floci carries the narrower CFN-sufficient implementation, and one conformance suite keeps both honest. See [docs/floci.md](docs/floci.md).
+Not a CloudFormation emulator. If you deploy MicroVMs through CFN or CDK rather than through the operator, that path is served by a [floci](https://github.com/floci-io/floci) module, since CFN emulation can only live where the CFN engine lives. The two cover different deployment paths and share one conformance suite; see [docs/floci.md](docs/floci.md).
 
-Replica pools, classes, and token sidecars are KubeMicroVM constructs, not service API. m80 models the service, not the operator.
+Not the operator. Replica pools, classes, and token sidecars are KubeMicroVM constructs rather than service API, so m80 models what the operator calls, not what it does.
+
+Not a way to run your code. Covered above, and it is the limit worth repeating.
 
 ## Pointing KubeMicroVM at m80
 
@@ -147,23 +186,13 @@ WARN run rejected: account memory ceiling reached allocatedMiB=4096 requestedMiB
 
 Anything running more than two VMs at once — a ReplicaSet, an operator test suite — wants `-max-account-memory-mib` raised. Pointing KubeMicroVM's UAT at m80 lost twenty of twenty-eight cases to this before the ceiling was raised, and the operator reported it as a timeout.
 
-## Validating a deployment before it costs anything
+## Where the 50 of 63 comes from
 
-Running KubeMicroVM normally means an EKS cluster and an AWS account that bills you. Pointed at m80 it runs on k3d, so a MicroVM deployment can be checked for whether it reconciles the way you expect before any of it reaches AWS.
+Measured 2026-08-01 against operator 1.0.11, excluding the performance suite.
 
-```sh
-just uat-up     # k3d + cert-manager + m80 + the operator, about two minutes
-```
+None of the thirteen failures is m80 answering differently from real AWS. Four reach the VM endpoint hostname, which resolves to real AWS rather than to m80. Four lose a race between the operator's resync and the UAT's 60 second timeout, which is as tight against the real service. Two want an IAM decision m80 refuses to make by design. Three are the finalizer bug above, where m80 answering *exactly* as real AWS is what exposes it.
 
-Then apply real CRs and watch the operator drive them. Two containers do the emulating, m80 at 8 MiB and the operator itself; [the guide](docs/kubemicrovm.md) has a worked example.
-
-What that will not tell you is whether your code runs. m80 emulates the control plane, so a MicroVM is a record with a state machine and a clock — nothing fetches your artifact and nothing executes it. Configuration, reconciliation, lifecycle, RBAC, quotas and teardown are real; your workload is not.
-
-## Operator proof
-
-KubeMicroVM's Robot Framework UAT is 63 cases written for a live EKS cluster and a real AWS account. It runs on k3d against m80 instead, and **50 of 63 pass**, measured 2026-08-01 against operator 1.0.11.
-
-None of the thirteen failures is m80 answering differently from real AWS — and in three of them, m80 answering *exactly* as real AWS is what exposes a bug in the operator. Four reach the VM endpoint hostname, which resolves to real AWS rather than to m80; four lose a race between the operator's resync and the UAT's 60s timeout; two want an IAM decision m80 refuses to make by design; three hit an operator finalizer that never clears because terminated MicroVMs stay listed, exactly as the real service does. The harness, every deviation from the upstream UAT, and the full breakdown are in [docs/kubemicrovm.md](docs/kubemicrovm.md), which is also where to start if you want to stand the stack up yourself.
+[docs/kubemicrovm.md](docs/kubemicrovm.md) has the per-suite table, every deviation from the upstream UAT, and how to tell an m80 gap from a UAT assumption.
 
 ## Proving it works
 
