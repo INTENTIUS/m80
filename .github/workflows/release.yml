@@ -143,6 +143,12 @@ jobs:
             -vm-endpoint-rewrite http://localhost:4290
           docker rm -f m80
 
+      # The conformance suite proves the candidate answers like AWS. This
+      # proves the README works against it, which is a different claim and
+      # the one a newcomer cares about first.
+      - name: README quick start against the container
+        run: ./scripts/smoke.sh m80:candidate
+
       - name: Log in to GHCR
         if: github.ref_type == 'tag'
         uses: docker/login-action@v3
