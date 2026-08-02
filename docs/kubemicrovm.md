@@ -32,7 +32,48 @@ stack up. operator health:
   AWS connectivity confirmed: account=000000000000
 ```
 
-Seeing that line means the operator has started, passed its startup gate, and is talking to the emulated stack. If it says `(connectivity line not seen yet)`, the operator did not come up; `kubectl -n kube-microvm logs deploy/kube-microvm-operator` says why.
+Seeing that line means the operator has started, passed its startup gate, and is talking to the emulated stack. If it does not appear the script exits non-zero and tells you which log to read.
+
+## Check it works
+
+```sh
+kubectl apply -f - <<'YAML'
+apiVersion: lambda.aws.amazon.com/v1alpha1
+kind: MicroVMImage
+metadata: { name: hello, namespace: default }
+spec:
+  region: us-east-1
+  baseImageArn: arn:aws:lambda:us-east-1:aws:microvm-image:al2023-1
+  buildRoleArn: arn:aws:iam::000000000000:role/demo
+  memorySizeMiB: 2048
+  source: { s3Bucket: demo, s3Key: code.zip }
+YAML
+
+kubectl get microvmimage hello -o jsonpath='{.status.activeVersion}'   # 1.0
+```
+
+The bucket and key need not exist, because m80 records the reference without fetching it. Then run one:
+
+```sh
+kubectl apply -f - <<'YAML'
+apiVersion: lambda.aws.amazon.com/v1alpha1
+kind: MicroVM
+metadata: { name: hello-vm, namespace: default }
+spec:
+  region: us-east-1
+  imageRef: hello
+  desiredState: Running
+  autoResumeEnabled: true
+  maxIdleDurationSeconds: 900
+YAML
+
+kubectl get microvm hello-vm -o jsonpath='{.status.state}'      # Running
+kubectl patch microvm hello-vm --type merge -p '{"spec":{"desiredState":"Suspended"}}'
+```
+
+To watch it from m80's side, `kubectl -n kube-microvm port-forward svc/m80 4291:4290` and point the AWS CLI at `http://localhost:4291`.
+
+Note `source.s3Bucket` and `source.s3Key` as flat fields; a nested `source.s3.bucket` is rejected by the CRD's strict decoding.
 
 From here `kubectl` works normally against the cluster. A MicroVM CR applied to the `default` namespace is reconciled by the operator, which calls m80, and `kubectl get microvm` shows it running.
 
@@ -51,12 +92,14 @@ Results land in `uat-results/`, of which `report.html` is the readable one. `uat
 |---|---|
 | k3d cluster | Stands in for EKS |
 | m80 | Serves the MicroVMs API, via the operator's `AWS_MICROVM_ENDPOINT` |
-| [floci](https://github.com/floci-io/floci) | Serves STS only, see the connectivity gate below |
+| [floci](https://github.com/floci-io/floci) | Serves STS only, see the connectivity gate below. Stock upstream image |
 | cert-manager | The operator's admission webhooks need it |
 | KubeMicroVM operator | Installed from GHCR, unmodified |
 | Runner container | Robot Framework, `kubectl`, the `microvm` CLI, the AWS CLI |
 
-m80 and floci are not alternatives here, they compose. m80 does not emulate STS and is not going to, because it models one service.
+m80 and floci are not alternatives here, they compose. m80 does not emulate STS and is not going to, because it models one service, and stock floci answers `sts:GetCallerIdentity` with account `000000000000` — the same account m80 uses, so ARNs line up.
+
+Worth being explicit, because it reads the other way round at first glance: **the MicroVMs module proposed for floci is not involved here and is not needed.** That module is a second implementation of the same API, for provisioning `AWS::Lambda::MicrovmImage` through CloudFormation, which is a path the operator never takes. Everything on this page runs against published images today.
 
 Every default is an environment variable: `CLUSTER`, `NS`, `M80_IMAGE`, `FLOCI_IMAGE`, `CHART_VERSION`, `REGION`, `MAX_ACCOUNT_MEMORY_MIB`. Read the top of `uat/up.sh` for the current values.
 
