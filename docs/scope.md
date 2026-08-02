@@ -12,6 +12,7 @@ The Lambda MicroVMs control plane and the minimal data-plane edges a client can 
 | Tokens | Issue per-VM auth tokens, validate `X-aws-proxy-auth` on the VM endpoint |
 | Endpoints | Each running VM exposes an HTTPS endpoint URL, m80 answers it with a configurable stub, enough for `curl` and readiness checks |
 | Network connectors | CRUD for VPC egress connectors, subnet and security group references accepted as opaque strings, service limits enforced |
+| `sts:GetCallerIdentity` | Off unless `-serve-sts`. A shim for consumers whose startup gate calls it, not an STS emulation: every other action answers 501. See [standing up KubeMicroVM](kubemicrovm.md) |
 | Limits | The five memory tiers, name patterns and lengths, connector subnet and security-group bounds, token expiry and port grants, the recorded account memory ceiling |
 
 ## Refused, on purpose
@@ -22,6 +23,7 @@ The Lambda MicroVMs control plane and the minimal data-plane edges a client can 
 | CloudFormation | Lives in floci where the CFN engine is, see [floci.md](floci.md) |
 | Replica pools, classes, sidecar injection | KubeMicroVM operator constructs, above the service API |
 | IAM evaluation | Roles and ARNs are accepted and echoed, never evaluated |
+| STS beyond one action | `-serve-sts` answers `GetCallerIdentity` and refuses the rest. Anything needing `AssumeRole` wants a real AWS emulator |
 | Real S3 | The image source reference is recorded, not fetched |
 | Billing | Suspended-costs-nothing is a pricing fact, not wire behavior |
 

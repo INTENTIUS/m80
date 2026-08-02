@@ -25,6 +25,7 @@ import (
 	"github.com/intentius/m80/internal/limits"
 	"github.com/intentius/m80/internal/managedimages"
 	"github.com/intentius/m80/internal/store"
+	"github.com/intentius/m80/internal/sts"
 	"github.com/intentius/m80/internal/tags"
 	"github.com/intentius/m80/internal/tokens"
 	"github.com/intentius/m80/internal/vms"
@@ -55,6 +56,8 @@ func main() {
 	throttleReason := flag.String("throttle-reason", "",
 		"ThrottleReason on throttles for the connector and tags families; the MicroVM model has no Reason member")
 	retryAfter := flag.Int("throttle-retry-after-seconds", 0, "Retry-After on throttles; 0 omits it")
+	serveSTS := flag.Bool("serve-sts", false,
+		"answer sts:GetCallerIdentity, for consumers whose startup gate calls it before they will report ready; not an STS emulation, every other action gets 501")
 	flag.Parse()
 
 	if *showVersion {
@@ -113,7 +116,27 @@ func main() {
 	tokens.Register(srv, tokenSvc, vmSvc)
 	// A VM's endpoint is a different host answered by the same process, so it
 	// cannot be a route pattern; it gets first look at every request instead.
-	srv.Intercept = tokens.NewEndpoint(tokenSvc, vmSvc, stub).Intercept
+	endpoint := tokens.NewEndpoint(tokenSvc, vmSvc, stub).Intercept
+	srv.Intercept = endpoint
+	if *serveSTS {
+		// STS is AWS Query rather than rest-json: a POST to / with a
+		// form-encoded body, which the route table cannot express. It shares
+		// the endpoint's pre-route hook, and is asked second so a VM endpoint
+		// on / still wins.
+		stsHandler := &sts.Handler{}
+		srv.Intercept = func(w http.ResponseWriter, r *http.Request) bool {
+			if endpoint(w, r) {
+				return true
+			}
+			if sts.Claims(r) {
+				stsHandler.ServeHTTP(w, r)
+				return true
+			}
+			return false
+		}
+		log.Info("serving sts:GetCallerIdentity",
+			"why", "a consumer startup gate needs it; this is a shim, not an STS emulation")
+	}
 
 	impl := len(srv.Implemented())
 	log.Info("m80 starting",

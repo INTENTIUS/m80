@@ -8,7 +8,7 @@
 | `AWS::Lambda::MicrovmImage` and `AWS::Lambda::NetworkConnector` through CloudFormation | floci | CFN emulation can only live where the CFN engine lives. chant's `MicrovmApp` and the kit's image stack deploy through CFN |
 | Conformance contract | shared suite | See [conformance.md](conformance.md) |
 
-They are not alternatives. The [KubeMicroVM harness](kubemicrovm.md) runs both at once, m80 for the MicroVMs API and floci for STS, because m80 models one service and is not going to grow a second.
+They are not alternatives, they answer different questions. m80 answers "does the operator do the right thing against this API", floci answers "does this CloudFormation template provision". The [KubeMicroVM harness](kubemicrovm.md) needs only the first, and runs m80 alone.
 
 ## Asymmetric scope
 

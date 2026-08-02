@@ -1,8 +1,10 @@
 # Standing up KubeMicroVM against m80
 
-KubeMicroVM is a Kubernetes operator for AWS Lambda MicroVMs. Its own UAT suite expects a live EKS cluster, Pod Identity, and a real AWS account. This page runs the same operator, unmodified, on a local k3d cluster against m80 instead.
+KubeMicroVM is a Kubernetes operator for AWS Lambda MicroVMs. Running it normally means an EKS cluster, Pod Identity, and a real AWS account that bills you. This page runs the same operator, unmodified, on a local k3d cluster against m80 instead.
 
-That is the point of m80 existing: it gets tested through a real consumer's eyes rather than through its own fixtures.
+Two things come out of that. You can check a MicroVM deployment reconciles the way you expect before any of it reaches AWS, which is the cheap half of finding out. And m80 gets tested through a real consumer's eyes rather than through its own fixtures.
+
+What it will not tell you is whether your code runs. m80 emulates the control plane, so a MicroVM here is a record with a state machine; nothing fetches your artifact and nothing executes it. See [scope](scope.md).
 
 ## What you need first
 
@@ -91,17 +93,20 @@ Results land in `uat-results/`, of which `report.html` is the readable one. `uat
 | Piece | Why |
 |---|---|
 | k3d cluster | Stands in for EKS |
-| m80 | Serves the MicroVMs API, via the operator's `AWS_MICROVM_ENDPOINT` |
-| [floci](https://github.com/floci-io/floci) | Serves STS only, see the connectivity gate below. Stock upstream image |
+| m80 | Serves the MicroVMs API, and `sts:GetCallerIdentity` for the operator's startup gate |
 | cert-manager | The operator's admission webhooks need it |
 | KubeMicroVM operator | Installed from GHCR, unmodified |
 | Runner container | Robot Framework, `kubectl`, the `microvm` CLI, the AWS CLI |
 
-m80 and floci are not alternatives here, they compose. m80 does not emulate STS and is not going to, because it models one service, and stock floci answers `sts:GetCallerIdentity` with account `000000000000` — the same account m80 uses, so ARNs line up.
+Two containers, m80 and the operator, plus cert-manager and k3d's own. m80 is 8 MiB.
 
-Worth being explicit, because it reads the other way round at first glance: **the MicroVMs module proposed for floci is not involved here and is not needed.** That module is a second implementation of the same API, for provisioning `AWS::Lambda::MicrovmImage` through CloudFormation, which is a path the operator never takes. Everything on this page runs against published images today.
+An earlier version of this harness also ran floci, a full AWS emulator, purely so something would answer the one `sts:GetCallerIdentity` call the operator's startup gate makes. That cost 556 MiB of image and 190 MiB of memory to return a 400-byte XML document, so m80 answers it directly under `-serve-sts`. It is a shim rather than an emulation: every other STS action gets a 501 saying so.
 
-Every default is an environment variable: `CLUSTER`, `NS`, `M80_IMAGE`, `FLOCI_IMAGE`, `CHART_VERSION`, `REGION`, `MAX_ACCOUNT_MEMORY_MIB`. Read the top of `uat/up.sh` for the current values.
+Worth stating because it reads the other way round at first glance: **the MicroVMs module proposed for floci is not involved here and is not needed.** That module is a second implementation of the same API m80 implements, for provisioning `AWS::Lambda::MicrovmImage` through CloudFormation, and the operator never takes the CloudFormation path.
+
+Every default is an environment variable: `CLUSTER`, `NS`, `M80_IMAGE`, `CHART_VERSION`, `REGION`, `MAX_ACCOUNT_MEMORY_MIB`. Read the top of `uat/up.sh` for the current values.
+
+To test a build of your own, `M80_IMAGE=m80:candidate ./uat/up.sh` — a locally built image is imported into the cluster rather than pulled.
 
 ## Deviations from the upstream UAT, and why
 
@@ -109,7 +114,7 @@ Each of these is a difference between this harness and the EKS run the suite was
 
 **No Pod Identity.** Static `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` of `test`/`test` go on the operator instead. m80 reads the region out of the sigv4 credential scope and validates no signature, so the values are irrelevant as long as they exist. `AWS_EC2_METADATA_DISABLED=true` stops the SDK stalling on IMDS that is not there.
 
-**The operator's startup gate calls real STS.** `AwsConnectivityStartup` runs `sts:GetCallerIdentity` at boot with a region and no endpoint override, so `AWS_MICROVM_ENDPOINT` does not reach it. Without a reachable STS the health check reports `awsConnectivity: false` forever, readiness never passes, the webhook service gets no endpoints, and every CR create fails with `no endpoints available`. Pointing `AWS_ENDPOINT_URL_STS` at floci fixes it. Filed upstream as [KubeMicroVM#50](https://github.com/codriverlabs/KubeMicroVM/issues/50), where the maintainers have said they intend to add an override.
+**The operator's startup gate calls real STS.** `AwsConnectivityStartup` runs `sts:GetCallerIdentity` at boot with a region and no endpoint override, so `AWS_MICROVM_ENDPOINT` does not reach it. Without a reachable STS the health check reports `awsConnectivity: false` forever, readiness never passes, the webhook service gets no endpoints, and every CR create fails with `no endpoints available`. Pointing `AWS_ENDPOINT_URL_STS` at m80, which answers that one action under `-serve-sts`, fixes it. Filed upstream as [KubeMicroVM#50](https://github.com/codriverlabs/KubeMicroVM/issues/50), where the maintainers have said they intend to add an override; when it lands the shim can go.
 
 **The chart only templates the env keys it knows.** `--set app.envs.AWS_ACCESS_KEY_ID=…` is silently dropped, so credentials and the STS override are patched in with `kubectl set env` after install. Filed as [KubeMicroVM#52](https://github.com/codriverlabs/KubeMicroVM/issues/52).
 
