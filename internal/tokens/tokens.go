@@ -50,6 +50,7 @@ type VMSource interface {
 	RecordTraffic(region, id string) (marker uint64, ok bool)
 	// Wake resumes a suspended VM.
 	Wake(region, id string)
+	IsEndpointHost(host string) bool
 }
 
 // Token is one issued credential. Ports is the set the token grants, which

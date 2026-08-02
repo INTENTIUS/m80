@@ -26,33 +26,44 @@ const defaultPort = 443
 
 // Endpoint serves the per-VM stub.
 //
-// Almost nothing here is recorded, and it could not have been: the
-// conformance runner signs and addresses control-plane requests, so it has no
-// way to call a host that is not the control plane. Rather than scatter
-// guesses through the code, every one of them is in the table below and
-// nowhere else.
+// Every answer here was a guess until the vm-endpoint scenario recorded them
+// against real AWS (#42), which needed the runner to be able to address a
+// host that is not the control plane. Four of the nine guesses were wrong,
+// and the table now reads:
 //
-//	Situation                              m80 answers   Basis
+//	Situation                              answers      recorded as
 //	-----------------------------------------------------------------------
-//	unknown endpoint host                   404          no VM to serve
-//	no or malformed token header            401          guess
-//	token unknown, expired, or another      403          guess
-//	  VM's
-//	port outside the token's allowedPorts   403          guess
-//	VM TERMINATED                           410          guess
-//	VM PENDING                              503          guess
-//	VM SUSPENDED, autoResumeEnabled         resume, 200  inferred: a suspended
-//	                                                     VM issues tokens so a
-//	                                                     client can wake it by
-//	                                                     calling it
-//	VM SUSPENDED, no autoResumeEnabled      503          guess
-//	VM RUNNING, token good                  200 + body   stub
+//	no token header                         403          "Request missing
+//	                                                     authentication"
+//	token unparseable or unknown            403          the same body: an
+//	                                                     undecryptable token
+//	                                                     reads as no token
+//	token for another VM                    403          "Token authentication
+//	                                                     failed"
+//	unknown endpoint host                   403          the same as another
+//	                                                     VM's token — the host
+//	                                                     names no VM, so no
+//	                                                     token can match it
+//	port outside the token's allowedPorts   200          not enforced here at
+//	                                                     all; a token granting
+//	                                                     only 8080 still serves
+//	                                                     443
+//	VM SUSPENDED, autoResumeEnabled         200          the VM is RUNNING
+//	                                                     afterwards; calling
+//	                                                     the endpoint does wake
+//	                                                     it
+//	VM SUSPENDED, no autoResumeEnabled      502, empty
+//	VM TERMINATED                           502, empty
+//	VM RUNNING, token good                  200          the image's own app
 //
-// 401 versus 403 is the one worth arguing about: a missing credential and a
-// rejected one are different failures to a client retrying with a fresh
-// token, so they are kept apart even though a single 403 would have been the
-// safer guess. Recording any of this needs runner support for a
-// non-control-plane host, which is not built.
+// Bodies are plain text, not the modeled error shape, which fits: this is a
+// proxy in front of the VM rather than the control plane.
+//
+// Two situations stay guesses because nothing recorded reaches them. A
+// PENDING VM answers as an unavailable one, 502 with an empty body, on the
+// grounds that every unavailable case AWS was observed on answers that way.
+// A shell token presented to the HTTP endpoint is refused as a token that
+// does not match, since a recording needs SHELL_INGRESS on the image.
 type Endpoint struct {
 	svc *Service
 	vms VMSource
@@ -109,6 +120,12 @@ func (e *Endpoint) route(r *http.Request) (region, id string, port int, ok bool)
 	}
 	reg, vmID, found := e.vms.LookupEndpoint(r.Host)
 	if !found {
+		if e.vms.IsEndpointHost(r.Host) {
+			// Shaped like an endpoint but naming no VM. Claim it: serve
+			// answers as it does for a token that matches nothing, which is
+			// what was recorded.
+			return "", "", hostPort(r.Host), true
+		}
 		return "", "", 0, false
 	}
 	return reg, vmID, hostPort(r.Host), true
@@ -130,53 +147,49 @@ func hostPort(host string) int {
 }
 
 func (e *Endpoint) serve(w http.ResponseWriter, r *http.Request, region, id string, port int) {
-	state, autoResume, found := e.vms.Status(region, id)
-	if !found {
-		endpointError(w, http.StatusNotFound, "NotFound", "No MicroVM endpoint for this host")
-		return
-	}
-
 	presented := r.Header.Get(HeaderName)
 	if strings.TrimSpace(presented) == "" {
-		endpointError(w, http.StatusUnauthorized, "Unauthorized", "Missing "+HeaderName)
-		return
-	}
-	t, valid := e.svc.Validate(presented)
-	if !valid {
-		endpointError(w, http.StatusForbidden, "Forbidden", "Token is not valid for this MicroVM")
-		return
-	}
-	if t.VMID != id || t.Region != region {
-		endpointError(w, http.StatusForbidden, "Forbidden", "Token is not valid for this MicroVM")
-		return
-	}
-	if t.Shell {
-		endpointError(w, http.StatusForbidden, "Forbidden", "Shell tokens do not authorize the HTTP endpoint")
-		return
-	}
-	if !t.Allows(port) {
-		endpointError(w, http.StatusForbidden, "Forbidden",
-			"Token does not grant port "+strconv.Itoa(port))
+		endpointError(w, http.StatusForbidden, "Request missing authentication")
 		return
 	}
 
-	switch state {
-	case stateTerminated:
-		endpointError(w, http.StatusGone, "Gone", "MicroVM has been terminated")
+	// An unknown host reaches here with no VM, and answers exactly as a token
+	// for the wrong VM does: the host names nothing, so nothing can match it.
+	state, autoResume, found := e.vms.Status(region, id)
+
+	t, valid := e.svc.Validate(presented)
+	switch {
+	case t == nil:
+		// Never issued, so AWS could not have decrypted it either, and an
+		// undecryptable token is indistinguishable from an absent one.
+		endpointError(w, http.StatusForbidden, "Request missing authentication")
 		return
+	case !valid, !found, t.VMID != id, t.Region != region, t.Shell:
+		endpointError(w, http.StatusForbidden, "Token authentication failed")
+		return
+	}
+
+	// allowedPorts is deliberately not checked. A token granting only 8080
+	// was recorded serving 443, so the grant does not gate the endpoint the
+	// control plane hands out, and enforcing it here would fail requests real
+	// AWS answers.
+	_ = port
+
+	switch state {
 	case stateSuspended:
 		if !autoResume {
-			endpointError(w, http.StatusServiceUnavailable, "Unavailable",
-				"MicroVM is suspended and its idle policy does not enable auto-resume")
+			unavailable(w)
 			return
 		}
-		// The auto-resume path. Waking before recording traffic means the
-		// marker the client reads is the one it just caused, not a stale one.
+		// Waking before recording traffic means the marker the client reads
+		// is the one it just caused, not a stale one.
 		e.vms.Wake(region, id)
 	case "RUNNING":
 	default:
-		endpointError(w, http.StatusServiceUnavailable, "Unavailable",
-			"MicroVM is not running (state "+state+")")
+		// TERMINATED, PENDING, and the transient states. Recorded for
+		// TERMINATED; the rest share it because every unavailable VM AWS was
+		// observed on answered the same way.
+		unavailable(w)
 		return
 	}
 
@@ -207,15 +220,18 @@ func (e *Endpoint) serve(w http.ResponseWriter, r *http.Request, region, id stri
 	})
 }
 
-// endpointError answers in m80's own shape, not a modeled one. These are the
-// VM's endpoint rather than the control plane, so no service error type
-// applies and inventing one would be worse than being obviously local.
-func endpointError(w http.ResponseWriter, status int, kind, message string) {
-	w.Header().Set("Content-Type", "application/json")
+// unavailable is what a VM that cannot serve answers: 502 with an empty body,
+// recorded for both a terminated VM and a suspended one whose idle policy
+// does not enable auto-resume.
+func unavailable(w http.ResponseWriter) {
+	w.WriteHeader(http.StatusBadGateway)
+}
+
+// endpointError answers in plain text, because that is what was recorded.
+// No modeled error type applies: this is a proxy in front of the VM, not the
+// control plane, and it does not speak the service's error shape.
+func endpointError(w http.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"error":   kind,
-		"message": message,
-		"source":  "m80-vm-endpoint",
-	})
+	_, _ = w.Write([]byte(message))
 }

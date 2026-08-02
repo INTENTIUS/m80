@@ -43,7 +43,7 @@ Observed sequences, all at poll resolution and therefore a lower bound — a sta
 | Terminate | `RUNNING` → `TERMINATED` |
 | Build | `IN_PROGRESS` → `SUCCESSFUL` |
 
-`SUSPENDING` and `TERMINATING` are in the enum but were never sampled, as were `PENDING` on a build. They are presumably real and brief. m80 models them on the injected clock, where a test can hold them open as long as it needs; treating them as unreachable because one recording missed them would be the wrong lesson.
+`SUSPENDING` was sampled on 2026-08-01, in the `vm-endpoint` recording: a five-second poll across an explicit suspend caught `SUSPENDING` then `SUSPENDED`. The same poll on the other VM in the same run caught only `RUNNING` then `SUSPENDED`, so it is real and brief enough to miss. `TERMINATING` and `PENDING` on a build are still unsampled and presumably the same. m80 models them on the injected clock, where a test can hold them open as long as it needs; treating them as unreachable because one recording missed them would be the wrong lesson.
 
 Recording these at all needed a harness change. A step's `until` block polls to a settled state and originally kept only the matching response, discarding every intermediate. The runner now retains the distinct states a poll walks through and writes them to the fixture's `.meta.json` as `observedStates` — recorded truth, never asserted, since an instant-settle emulator walks a shorter path and is still conformant on every observable state.
 

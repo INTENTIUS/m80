@@ -1,0 +1,404 @@
+{
+  "id": "vm-endpoint",
+  "params": {
+    "baseImageArn": "arn:aws:lambda:${region}:aws:microvm-image:al2023-1",
+    "buildRoleArn": "arn:aws:iam::123456789012:role/m80-conformance-build",
+    "codeArtifactUri": "s3://m80-conformance-123456789012-use2/code.zip"
+  },
+  "tags": [
+    "documented-only"
+  ],
+  "steps": [
+    {
+      "name": "create-image",
+      "operation": "CreateMicrovmImage",
+      "method": "POST",
+      "path": "/2025-09-09/microvm-images",
+      "body": {
+        "name": "m80-conf-endpoint-image",
+        "baseImageArn": "${baseImageArn}",
+        "buildRoleArn": "${buildRoleArn}",
+        "codeArtifact": {
+          "uri": "${codeArtifactUri}"
+        }
+      },
+      "expect": {
+        "status": 201
+      },
+      "capture": {
+        "imageVersion": "imageVersion",
+        "imageArn": "imageArn"
+      }
+    },
+    {
+      "name": "version-until-built",
+      "operation": "GetMicrovmImageVersion",
+      "method": "GET",
+      "path": "/2025-09-09/microvm-images/${imageArn}/versions/${imageVersion}",
+      "expect": {
+        "status": 200
+      },
+      "until": {
+        "path": "state",
+        "equals": "SUCCESSFUL",
+        "timeoutSec": 2700,
+        "intervalSec": 10
+      }
+    },
+    {
+      "name": "run-a",
+      "operation": "RunMicrovm",
+      "method": "POST",
+      "path": "/2025-09-09/microvms",
+      "body": {
+        "imageIdentifier": "${imageArn}",
+        "idlePolicy": {
+          "autoResumeEnabled": true,
+          "maxIdleDurationSeconds": 900,
+          "suspendedDurationSeconds": 1800
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "capture": {
+        "vmA": "microvmId"
+      }
+    },
+    {
+      "name": "get-a-until-running",
+      "operation": "GetMicrovm",
+      "method": "GET",
+      "path": "/2025-09-09/microvms/${vmA}",
+      "expect": {
+        "status": 200
+      },
+      "until": {
+        "path": "state",
+        "equals": "RUNNING",
+        "timeoutSec": 600,
+        "intervalSec": 5
+      },
+      "capture": {
+        "endpointA": "endpoint"
+      }
+    },
+    {
+      "name": "run-b",
+      "operation": "RunMicrovm",
+      "method": "POST",
+      "path": "/2025-09-09/microvms",
+      "body": {
+        "imageIdentifier": "${imageArn}",
+        "idlePolicy": {
+          "autoResumeEnabled": false,
+          "maxIdleDurationSeconds": 900,
+          "suspendedDurationSeconds": 1800
+        }
+      },
+      "expect": {
+        "status": 200
+      },
+      "capture": {
+        "vmB": "microvmId"
+      }
+    },
+    {
+      "name": "get-b-until-running",
+      "operation": "GetMicrovm",
+      "method": "GET",
+      "path": "/2025-09-09/microvms/${vmB}",
+      "expect": {
+        "status": 200
+      },
+      "until": {
+        "path": "state",
+        "equals": "RUNNING",
+        "timeoutSec": 600,
+        "intervalSec": 5
+      },
+      "capture": {
+        "endpointB": "endpoint"
+      }
+    },
+    {
+      "name": "token-a-all-ports",
+      "operation": "CreateMicrovmAuthToken",
+      "method": "POST",
+      "path": "/2025-09-09/microvms/${vmA}/auth-token",
+      "body": {
+        "expirationInMinutes": 60,
+        "allowedPorts": [
+          {
+            "allPorts": {}
+          }
+        ]
+      },
+      "expect": {
+        "status": 200
+      },
+      "capture": {
+        "tokenA": "authToken.X-aws-proxy-auth"
+      }
+    },
+    {
+      "name": "token-b-all-ports",
+      "operation": "CreateMicrovmAuthToken",
+      "method": "POST",
+      "path": "/2025-09-09/microvms/${vmB}/auth-token",
+      "body": {
+        "expirationInMinutes": 60,
+        "allowedPorts": [
+          {
+            "allPorts": {}
+          }
+        ]
+      },
+      "expect": {
+        "status": 200
+      },
+      "capture": {
+        "tokenB": "authToken.X-aws-proxy-auth"
+      }
+    },
+    {
+      "name": "token-a-port-8080-only",
+      "operation": "CreateMicrovmAuthToken",
+      "method": "POST",
+      "path": "/2025-09-09/microvms/${vmA}/auth-token",
+      "body": {
+        "expirationInMinutes": 60,
+        "allowedPorts": [
+          {
+            "port": 8080
+          }
+        ]
+      },
+      "expect": {
+        "status": 200
+      },
+      "capture": {
+        "tokenPort8080": "authToken.X-aws-proxy-auth"
+      }
+    },
+    {
+      "name": "endpoint-no-token",
+      "operation": "VmEndpoint",
+      "method": "GET",
+      "baseURL": "https://${endpointA}",
+      "path": "/"
+    },
+    {
+      "name": "endpoint-malformed-token",
+      "operation": "VmEndpoint",
+      "method": "GET",
+      "baseURL": "https://${endpointA}",
+      "path": "/",
+      "headers": {
+        "X-aws-proxy-auth": "not-a-token"
+      }
+    },
+    {
+      "name": "endpoint-other-vms-token",
+      "operation": "VmEndpoint",
+      "method": "GET",
+      "baseURL": "https://${endpointA}",
+      "path": "/",
+      "headers": {
+        "X-aws-proxy-auth": "${tokenB}"
+      }
+    },
+    {
+      "name": "endpoint-port-not-granted",
+      "operation": "VmEndpoint",
+      "method": "GET",
+      "baseURL": "https://${endpointA}",
+      "path": "/",
+      "headers": {
+        "X-aws-proxy-auth": "${tokenPort8080}"
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "name": "endpoint-valid-token",
+      "operation": "VmEndpoint",
+      "method": "GET",
+      "baseURL": "https://${endpointA}",
+      "path": "/",
+      "headers": {
+        "X-aws-proxy-auth": "${tokenA}"
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "name": "suspend-a",
+      "operation": "SuspendMicrovm",
+      "method": "POST",
+      "path": "/2025-09-09/microvms/${vmA}/suspend",
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "name": "get-a-until-suspended",
+      "operation": "GetMicrovm",
+      "method": "GET",
+      "path": "/2025-09-09/microvms/${vmA}",
+      "expect": {
+        "status": 200
+      },
+      "until": {
+        "path": "state",
+        "equals": "SUSPENDED",
+        "timeoutSec": 600,
+        "intervalSec": 5
+      }
+    },
+    {
+      "name": "endpoint-suspended-auto-resume",
+      "operation": "VmEndpoint",
+      "method": "GET",
+      "baseURL": "https://${endpointA}",
+      "path": "/",
+      "headers": {
+        "X-aws-proxy-auth": "${tokenA}"
+      },
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "name": "get-a-after-endpoint-call",
+      "operation": "GetMicrovm",
+      "method": "GET",
+      "path": "/2025-09-09/microvms/${vmA}",
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "name": "suspend-b",
+      "operation": "SuspendMicrovm",
+      "method": "POST",
+      "path": "/2025-09-09/microvms/${vmB}/suspend",
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "name": "get-b-until-suspended",
+      "operation": "GetMicrovm",
+      "method": "GET",
+      "path": "/2025-09-09/microvms/${vmB}",
+      "expect": {
+        "status": 200
+      },
+      "until": {
+        "path": "state",
+        "equals": "SUSPENDED",
+        "timeoutSec": 600,
+        "intervalSec": 5
+      }
+    },
+    {
+      "name": "endpoint-suspended-no-auto-resume",
+      "operation": "VmEndpoint",
+      "method": "GET",
+      "baseURL": "https://${endpointB}",
+      "path": "/",
+      "headers": {
+        "X-aws-proxy-auth": "${tokenB}"
+      }
+    },
+    {
+      "name": "get-b-after-endpoint-call",
+      "operation": "GetMicrovm",
+      "method": "GET",
+      "path": "/2025-09-09/microvms/${vmB}",
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "name": "terminate-a",
+      "operation": "TerminateMicrovm",
+      "method": "DELETE",
+      "path": "/2025-09-09/microvms/${vmA}",
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "name": "get-a-until-terminated",
+      "operation": "GetMicrovm",
+      "method": "GET",
+      "path": "/2025-09-09/microvms/${vmA}",
+      "expect": {
+        "status": 200
+      },
+      "until": {
+        "path": "state",
+        "equals": "TERMINATED",
+        "timeoutSec": 600,
+        "intervalSec": 5
+      }
+    },
+    {
+      "name": "endpoint-terminated-vm",
+      "operation": "VmEndpoint",
+      "method": "GET",
+      "baseURL": "https://${endpointA}",
+      "path": "/",
+      "headers": {
+        "X-aws-proxy-auth": "${tokenA}"
+      }
+    },
+    {
+      "name": "terminate-b",
+      "operation": "TerminateMicrovm",
+      "method": "DELETE",
+      "path": "/2025-09-09/microvms/${vmB}",
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "name": "get-b-until-terminated",
+      "operation": "GetMicrovm",
+      "method": "GET",
+      "path": "/2025-09-09/microvms/${vmB}",
+      "expect": {
+        "status": 200
+      },
+      "until": {
+        "path": "state",
+        "equals": "TERMINATED",
+        "timeoutSec": 600,
+        "intervalSec": 5
+      }
+    },
+    {
+      "name": "delete-image",
+      "operation": "DeleteMicrovmImage",
+      "method": "DELETE",
+      "path": "/2025-09-09/microvm-images/${imageArn}",
+      "expect": {
+        "status": 200
+      }
+    },
+    {
+      "name": "endpoint-unknown-host",
+      "operation": "VmEndpoint",
+      "method": "GET",
+      "baseURL": "https://00000000-0000-0000-0000-000000000000.lambda-microvm.${region}.on.aws",
+      "path": "/",
+      "headers": {
+        "X-aws-proxy-auth": "${tokenA}"
+      }
+    }
+  ]
+}

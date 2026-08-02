@@ -1,0 +1,4 @@
+{
+  "imageIdentifier": "arn:aws:lambda:REGION:ACCOUNT:microvm-image:m80-conf-endpoint-image",
+  "state": "DELETING"
+}

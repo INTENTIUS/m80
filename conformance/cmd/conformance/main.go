@@ -23,6 +23,7 @@ func main() {
 	tier := flag.String("tier", "all", "comparison strictness: all, or load-bearing to ignore members nothing branches on")
 	keepGoing := flag.Bool("keep-going", false, "continue a scenario past a step whose body diverged, to report every divergence in one run rather than the first")
 	tiersPath := flag.String("tiers", "conformance/tiers.json", "member tier classification")
+	vmRewrite := flag.String("vm-endpoint-rewrite", "", "send VM-endpoint steps here, keeping the Host header (like curl --resolve); needed against a local target, empty for a recording run")
 	asJSON := flag.Bool("json", false, "JSON report on stdout")
 	inventoryPath := flag.String("inventory", "conformance/inventory.json", "operation inventory")
 	var params paramFlags
@@ -56,18 +57,19 @@ func main() {
 	}
 
 	r := runner.New(runner.Config{
-		Endpoint:    *endpoint,
-		Region:      *region,
-		CasesDir:    *cases,
-		FixturesDir: *fixtures,
-		TagFilter:   tagFilter,
-		Record:      *record,
-		MaxPollSec:  *maxPoll,
-		Tier:        runner.Tier(*tier),
-		KeepGoing:   *keepGoing,
-		Tiers:       tiers,
-		Params:      params.m,
-		Credentials: runner.CredentialsFromEnv(),
+		Endpoint:          *endpoint,
+		Region:            *region,
+		CasesDir:          *cases,
+		FixturesDir:       *fixtures,
+		TagFilter:         tagFilter,
+		Record:            *record,
+		MaxPollSec:        *maxPoll,
+		Tier:              runner.Tier(*tier),
+		KeepGoing:         *keepGoing,
+		VMEndpointRewrite: *vmRewrite,
+		Tiers:             tiers,
+		Params:            params.m,
+		Credentials:       runner.CredentialsFromEnv(),
 	})
 
 	scenarios, err := r.LoadScenarios()

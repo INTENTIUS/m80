@@ -92,12 +92,41 @@ go run ./conformance/cmd/conformance -endpoint http://localhost:4599 \
 
 It is a measuring aid, not a softer gate. Only a body mismatch is survivable, because the request still succeeded and the resource still exists, so the captures are good and later steps have something to act on. A wrong status, a wrong error type, or a poll that never settles still halts the scenario — nothing after those can be trusted. Diverging steps are still reported as failures and the exit status is unchanged, so this is safe to leave out of CI and useful to reach for when a second implementation is being brought up.
 
+## Reaching a VM's own endpoint
+
+The runner addresses the control plane and sigv4-signs everything, which left the per-VM endpoint unrecordable and every one of its answers a guess. Two step fields fix that:
+
+```json
+{
+  "name": "endpoint-valid-token",
+  "operation": "VmEndpoint",
+  "method": "GET",
+  "baseURL": "https://${endpointA}",
+  "path": "/",
+  "headers": { "X-aws-proxy-auth": "${tokenA}" },
+  "expect": { "status": 200 }
+}
+```
+
+`baseURL` is templated like `path`, so a step can target the hostname captured from an earlier `GetMicrovm`. A step that sets it is **not signed** — the endpoint authenticates with a header credential, and signing it would invent a scheme the service does not use. `headers` is how that credential rides.
+
+That hostname resolves publicly to real AWS, which is right for a recording run and useless against a local target. `-vm-endpoint-rewrite http://127.0.0.1:4566` sends those steps to a given address while leaving the `Host` header intact, the same trick as `curl --resolve`, and needed for the same reason: the target routes on the name.
+
+```sh
+go run ./conformance/cmd/conformance -endpoint http://localhost:4566 \
+  -vm-endpoint-rewrite http://localhost:4566 -poll-timeout 20
+```
+
+A target that does not serve VM endpoints at all can skip the scenario with `-tags`; it carries no `subset:floci` tag, since nothing in CloudFormation reaches an endpoint.
+
 ## Rejected fixtures
 
-A fixture renamed to `<step>.json.rejected-<reason>` is a recording the suite refuses to treat as truth, because it captured the recording *account* rather than the service. They are kept rather than deleted: each one is evidence, and each cost a live session.
+A fixture renamed to `<step>.json.rejected-<reason>` is a recording the suite refuses to treat as truth, because it captured the recording *account* or *image* rather than the service. They are kept rather than deleted: each one is evidence, and each cost a live session.
 
 `rejected-502` — the probe used the pre-recording guess `mv-…` for a VM id. Real ids are `microvm-<uuid>`, and the API gateway answered the malformed path with an nginx `502` HTML page. Re-recorded clean once the case used a well-formed id.
 
 `rejected-account-history` — `ListMicrovms` returns every VM the account has ever run, terminated ones included and apparently forever. A recorded list is therefore a photograph of one account at one moment and can never equal a fresh target's. Those steps use `itemShape` instead.
+
+`rejected-image-owned-body` — a successful call to a VM's endpoint returns whatever the image serves. The recording captured the `code.zip` app's `{"path":"/","status":"ok","ts":…}`, which says nothing about the service and everything about what happened to be in the bucket. Those steps assert status only, and any target may serve any body — m80 serves its own stub, or whatever `-vm-stub-body` points at.
 
 A fourth category turned out not to exist. Three not-found probes recorded `403 AccessDeniedException` with bodies naming the caller and a capital-M `Message`, and were briefly set aside as an artifact of the recording account's permissions. That diagnosis was wrong: the account holds `AdministratorAccess`, and the real cause was `missingImageArn` carrying the `123456789012` placeholder, which makes the probe *cross-account*. Cross-account access needs a resource-based policy no matter how much admin the caller holds, so the 403 was correct AWS behavior for the ARN actually sent — just not the behavior the case meant to test. `account` is a built-in param now, the same as `region`, and all three re-recorded as the `404 ResourceNotFoundException` their `expect` blocks always claimed.

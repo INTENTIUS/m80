@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -42,6 +43,20 @@ type Step struct {
 	Expect    Expect            `json:"expect"`
 	Capture   map[string]string `json:"capture,omitempty"`
 	Until     *Until            `json:"until,omitempty"`
+
+	// BaseURL sends this step somewhere other than the control-plane endpoint,
+	// and is templated like Path so a VM's own hostname can be captured from an
+	// earlier step. A step with a BaseURL is not sigv4-signed: the per-VM
+	// endpoint authenticates with an X-aws-proxy-auth header instead, and
+	// signing it would be inventing a scheme the service does not use.
+	//
+	// The endpoint is the one target a control-plane runner cannot otherwise
+	// reach, which is why every answer it gives is currently a guess (#42).
+	BaseURL string `json:"baseURL,omitempty"`
+
+	// Headers are sent verbatim, templated. The endpoint's credential rides
+	// one of these rather than a signature.
+	Headers map[string]string `json:"headers,omitempty"`
 
 	// Optional marks a step whose operation is incidental to the scenario, so
 	// a 501 from it does not halt the rest. Without it a side probe wedged
@@ -145,10 +160,18 @@ type Config struct {
 	// exists. A wrong status, a wrong error type or a poll that never settled
 	// still halts the scenario, since nothing after it can be trusted. The
 	// step is reported as failed either way and the exit status is unchanged.
-	KeepGoing   bool
-	Params      map[string]string
-	Credentials aws.Credentials
-	HTTPClient  *http.Client
+	KeepGoing bool
+	// VMEndpointRewrite sends steps that target a VM's own endpoint to this
+	// address instead, keeping the Host header the step asked for — the same
+	// trick as curl's --resolve, and needed for the same reason. A VM endpoint
+	// hostname resolves publicly to real AWS, so against a local target the
+	// name has to be redirected while staying intact, since the target routes
+	// on it. Empty means go to the hostname, which is what a recording run
+	// against real AWS wants.
+	VMEndpointRewrite string
+	Params            map[string]string
+	Credentials       aws.Credentials
+	HTTPClient        *http.Client
 }
 
 type Runner struct {
@@ -344,13 +367,39 @@ func (r *Runner) request(st Step, vars map[string]string) (int, []byte, string, 
 	if len(st.Body) > 0 {
 		payload = []byte(substitute(string(st.Body), vars))
 	}
-	req, err := http.NewRequest(st.Method, strings.TrimRight(r.cfg.Endpoint, "/")+path, bytes.NewReader(payload))
+
+	base := strings.TrimRight(r.cfg.Endpoint, "/")
+	direct := st.BaseURL != ""
+	var host string
+	if direct {
+		base = strings.TrimRight(substitute(st.BaseURL, vars), "/")
+		if r.cfg.VMEndpointRewrite != "" {
+			u, err := url.Parse(base)
+			if err != nil {
+				return 0, nil, "", fmt.Errorf("baseURL %q: %w", base, err)
+			}
+			host = u.Host
+			base = strings.TrimRight(r.cfg.VMEndpointRewrite, "/")
+		}
+	}
+
+	req, err := http.NewRequest(st.Method, base+path, bytes.NewReader(payload))
 	if err != nil {
 		return 0, nil, "", err
 	}
+	if host != "" {
+		req.Host = host
+	}
 	req.Header.Set("Content-Type", "application/json")
-	if err := Sign(req, payload, r.cfg.Credentials, r.cfg.Region); err != nil {
-		return 0, nil, "", fmt.Errorf("sign: %w", err)
+	for k, v := range st.Headers {
+		req.Header.Set(k, substitute(v, vars))
+	}
+	// A step aimed at a VM's own endpoint carries its own credential and is
+	// not part of the signed control plane.
+	if !direct {
+		if err := Sign(req, payload, r.cfg.Credentials, r.cfg.Region); err != nil {
+			return 0, nil, "", fmt.Errorf("sign: %w", err)
+		}
 	}
 	resp, err := r.cfg.HTTPClient.Do(req)
 	if err != nil {

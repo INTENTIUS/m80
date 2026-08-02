@@ -78,6 +78,22 @@ Facts the models could not state, learned during the fixture-recording runs.
 | Quota errors carry empty detail | `quotaCode`, `serviceCode`, `resourceId`, and `resourceType` are all present and all `null`. A client cannot branch on which quota was hit; only the message says |
 | Concurrency throttling is masked | The burst never produced `ThrottlingException` or any `ThrottleReason`, including `ConcurrentSnapshotCreateLimitExceeded`. The memory ceiling fires first and hides it. KubeMicroVM's QuotaGuard will meet 402 long before it meets a throttle on a default account |
 
+## Recorded corrections (2026-08-01, the VM endpoint)
+
+The per-VM endpoint had never been recorded, because the conformance runner addressed the control plane and signed everything it sent. Giving a step its own `baseURL` and headers ([#42](https://github.com/INTENTIUS/m80/issues/42)) made it reachable, and four of m80's nine guesses were wrong.
+
+| Fact | Detail |
+|------|--------|
+| A missing token and an unparseable one are the same failure | Both `403` with the plain-text body `Request missing authentication`. m80 answered `401` for a missing header, on the reasoning that a client retrying with a fresh token wants them apart. AWS does not agree |
+| A token for the wrong VM is a different failure | `403 Token authentication failed`. This is the message the KubeMicroVM UAT reports on four of its cases, which confirms those curls reach real AWS rather than m80 |
+| An unknown endpoint hostname answers as a mismatched token would | `403 Token authentication failed`, not a `404`. The host names no VM, so no token can match it |
+| **`allowedPorts` does not gate the endpoint** | A token granting only port 8080 served `https://<endpoint>/` — port 443 — with `200`. The grant is validated at issue time and then not enforced on the hostname the control plane hands out. m80 enforced it, which would have failed requests AWS answers |
+| A terminated VM answers `502` with an empty body | Not the `410` m80 guessed. So does a suspended VM whose idle policy does not enable auto-resume, where m80 guessed `503` |
+| Calling a suspended VM's endpoint does wake it | With `autoResumeEnabled`, the call returns `200` and `GetMicrovm` reads `RUNNING` immediately after. The one guess that held |
+| Endpoint bodies are plain text | No modeled error type, no JSON envelope. It is a proxy in front of the VM, not the control plane |
+
+A successful call returns whatever the image serves — in the recording, the `code.zip` app's `{"path":"/","status":"ok","ts":…}`. That body is the customer's, not the service's, so its fixtures are set aside as `.image-owned-body` and those steps assert status only.
+
 ## Error and throttle taxonomy
 
 Also in the model, no recording run needed for shapes. `AccessDeniedException`, `ConflictException`, `ResourceConflictException`, `ResourceNotFoundException`, `InvalidParameterValueException`, `ServiceQuotaExceededException`, `ThrottlingException`, `TooManyRequestsException`, `InternalServerException`, `ServiceException`. `ThrottleReason` enumerates six reasons including `ConcurrentSnapshotCreateLimitExceeded`, which is the one QuotaGuard testing cares about.

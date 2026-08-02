@@ -732,3 +732,54 @@ func TestCoverageReport(t *testing.T) {
 		t.Errorf("unexercised: %v", rep.Coverage.Unexercised)
 	}
 }
+
+// A step aimed at a VM's own endpoint goes to a different host, carries its
+// own credential in a header, and is not sigv4-signed. Without this the
+// endpoint is unreachable from the suite and every answer it gives stays a
+// guess (#42).
+func TestBaseURLStepBypassesTheControlPlane(t *testing.T) {
+	var gotHost, gotAuth, gotSigv4 string
+	vm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHost = r.Host
+		gotAuth = r.Header.Get("X-aws-proxy-auth")
+		gotSigv4 = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer vm.Close()
+
+	control := stub()
+	defer control.Close()
+
+	dir := t.TempDir()
+	writeScenario(t, dir, "50-endpoint.json", Scenario{
+		ID:   "vm-endpoint",
+		Tags: []string{"documented-only"},
+		Steps: []Step{
+			{
+				Name: "call-endpoint", Operation: "VmEndpoint",
+				Method: "GET", BaseURL: vm.URL, Path: "/",
+				Headers: map[string]string{"X-aws-proxy-auth": "token-abc"},
+				Expect:  Expect{Status: 200, BodyMatch: json.RawMessage(`{"status":"ok"}`)},
+			},
+		},
+	})
+
+	r := newTestRunner(t, control.URL, dir, t.TempDir(), false, nil)
+	scenarios, err := r.LoadScenarios()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := outcomes(r.Run(scenarios))["vm-endpoint/call-endpoint"]; got != Pass {
+		t.Fatalf("got %s, want pass", got)
+	}
+	if gotHost == "" || strings.Contains(control.URL, gotHost) {
+		t.Errorf("request went to the control plane (%q), not the VM endpoint", gotHost)
+	}
+	if gotAuth != "token-abc" {
+		t.Errorf("X-aws-proxy-auth %q, want the templated token", gotAuth)
+	}
+	if gotSigv4 != "" {
+		t.Errorf("endpoint request was sigv4-signed (%q); the endpoint uses a header credential", gotSigv4)
+	}
+}
