@@ -104,6 +104,8 @@ An earlier version of this harness also ran floci, a full AWS emulator, purely s
 
 Worth stating because it reads the other way round at first glance: **the MicroVMs module proposed for floci is not involved here and is not needed.** That module is a second implementation of the same API m80 implements, for provisioning `AWS::Lambda::MicrovmImage` through CloudFormation, and the operator never takes the CloudFormation path.
 
+Nor does this harness need the S3 bucket or the IAM build role to exist. m80 accepts both as opaque strings and fetches nothing, so every case here passes against a bucket that was never created. Validating the provisioning of those prerequisites is a real and separate job, and [docs/floci.md](floci.md) says which layer does it.
+
 Every default is an environment variable: `CLUSTER`, `NS`, `M80_IMAGE`, `CHART_VERSION`, `REGION`, `MAX_ACCOUNT_MEMORY_MIB`. Read the top of `uat/up.sh` for the current values.
 
 To test a build of your own, `M80_IMAGE=m80:candidate ./uat/up.sh` — a locally built image is imported into the cluster rather than pulled.
