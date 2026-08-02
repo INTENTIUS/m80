@@ -20,7 +20,7 @@ One target remains. The endpoint probe, running or suspended, needs the runner t
 
 ## M3 — m80 itself
 
-Done 2026-07-31. Go, single binary, distroless image, injected clock, in-memory store, implemented to the suite. All 29 operations answer; `/_m80/health` reports 29/29 with an empty pending list, and the conformance suite runs 71 checks with nothing skipped and nothing unimplemented. Failure injection landed with the state machines rather than after: a build can be forced to `FAILED`, a connector to any of the seven reason codes, and the account memory ceiling and request throttles are configurable.
+Done 2026-07-31. Go, single binary, distroless image, injected clock, in-memory store, implemented to the suite. All 29 operations answer; `/_m80/health` reports 29/29 with an empty pending list, and the conformance suite runs 100 checks with nothing skipped and nothing unimplemented. Failure injection landed with the state machines rather than after: a build can be forced to `FAILED`, a connector to any of the seven reason codes, and the account memory ceiling and request throttles are configurable.
 
 Pointing a real client at it was the check that mattered. The AWS CLI drives the whole lifecycle through an endpoint override — create an image, poll it to `SUCCESSFUL`, run a VM, suspend it, resume it, mint an auth token, tag the image — with dummy credentials, because m80 reads the region out of the sigv4 scope and validates no signature.
 

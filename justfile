@@ -50,11 +50,13 @@ image-check port="4290": image
         curl -sf http://localhost:{{port}}/_m80/health >/dev/null && break
         sleep 0.5
     done
-    go run ./conformance/cmd/conformance -endpoint http://localhost:{{port}} -poll-timeout 20
+    go run ./conformance/cmd/conformance -endpoint http://localhost:{{port}} \
+        -poll-timeout 20 -vm-endpoint-rewrite http://localhost:{{port}}
 
 # Run the conformance suite against an already-running target.
 conformance endpoint="http://localhost:4290":
-    go run ./conformance/cmd/conformance -endpoint {{endpoint}} -poll-timeout 20
+    go run ./conformance/cmd/conformance -endpoint {{endpoint}} -poll-timeout 20 \
+        -vm-endpoint-rewrite {{endpoint}}
 
 # Cross-compile the release binaries and checksum them.
 dist:

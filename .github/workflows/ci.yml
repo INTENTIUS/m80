@@ -53,3 +53,64 @@ jobs:
 
       - name: Build docs (strict)
         run: mkdocs build --strict
+
+  # The Go tests exercise m80's internals; nothing in them runs the
+  # conformance suite, which is the part that says m80 answers like AWS. That
+  # gate lived only in release.yml, so a change could diverge from every
+  # recorded fixture and CI would stay green until someone cut a tag.
+  conformance:
+    name: Conformance against a live binary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - name: Build and start m80
+        run: |
+          go build -o m80 ./cmd/m80
+          ./m80 -addr :4290 -build-delay 300ms &
+          for _ in $(seq 1 30); do
+            curl -sf http://localhost:4290/_m80/health >/dev/null && break
+            sleep 0.2
+          done
+
+      # -vm-endpoint-rewrite sends the per-VM endpoint steps at this instance
+      # rather than the hostname the control plane hands out, which resolves
+      # publicly to real AWS.
+      - name: Conformance
+        run: |
+          go run ./conformance/cmd/conformance \
+            -endpoint http://localhost:4290 -poll-timeout 20 \
+            -vm-endpoint-rewrite http://localhost:4290
+
+      # A suite that skipped half the surface could still be green, so the
+      # health endpoint's pending list is its own assertion.
+      - name: Every operation is implemented
+        run: |
+          curl -s http://localhost:4290/_m80/health > health.json
+          python3 - <<'PY'
+          import json, sys
+          cov = json.load(open("health.json"))["coverage"]
+          print(f'{cov["implemented"]}/{len(cov["operations"])} implemented')
+          if cov["notImplementedYet"]:
+              sys.exit("still pending: " + ", ".join(cov["notImplementedYet"]))
+          PY
+
+  # Someone arriving at the README has a docker daemon and the AWS CLI and
+  # nothing else. This runs the quick start verbatim against the image the
+  # release would publish, because a walkthrough nobody executes rots.
+  smoke:
+    name: README quick start against the container
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build the image
+        run: docker build -t m80:candidate .
+
+      - name: Walk the quick start
+        run: ./scripts/smoke.sh

@@ -2,7 +2,7 @@
 
 A standalone, stateful local emulator of the AWS Lambda MicroVMs API. Like LocalStack, but for Lambda MicroVMs. The M-80 is the most famous firecracker there is, and m80 emulates a Firecracker-backed service.
 
-**Status: all 29 operations implemented.** The conformance suite runs 71 checks against recorded fixtures with nothing skipped and nothing unimplemented. See the [roadmap](docs/roadmap.md).
+**Status: all 29 operations implemented.** The conformance suite runs 100 checks against fixtures recorded from live AWS, with nothing skipped and nothing unimplemented. See the [roadmap](docs/roadmap.md).
 
 ## Quick start
 
@@ -27,6 +27,36 @@ cfg, _ := config.LoadDefaultConfig(ctx,
     config.WithRegion("us-east-2"),
     config.WithBaseEndpoint("http://localhost:4290"))
 ```
+
+### The whole loop, from nothing to a running VM
+
+Every operation the AWS CLI knows works against m80. The one thing worth saying up front is that the identifier flags are not uniform — images take `--image-identifier`, VMs take `--microvm-identifier` — which is the service's naming, not m80's.
+
+```sh
+export AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test
+export AWS_ENDPOINT_URL=http://localhost:4290 AWS_REGION=us-east-2
+alias mv='aws lambda-microvms'
+
+# Build an image. Nothing is fetched, so the S3 uri and the role need not exist.
+mv create-microvm-image --name demo \
+    --base-image-arn arn:aws:lambda:us-east-2:aws:microvm-image:al2023-1 \
+    --build-role-arn arn:aws:iam::000000000000:role/demo \
+    --code-artifact uri=s3://demo/code.zip
+
+mv get-microvm-image-version --image-identifier demo --image-version 1.0 \
+    --query state          # CREATING, then SUCCESSFUL after -build-delay
+
+# Run one, and wait for it.
+VM=$(mv run-microvm --image-identifier demo --query microvmId --output text)
+mv get-microvm --microvm-identifier "$VM" --query '[state,endpoint]'
+
+# Suspend it, resume it, terminate it.
+mv suspend-microvm --microvm-identifier "$VM"
+mv resume-microvm  --microvm-identifier "$VM"
+mv terminate-microvm --microvm-identifier "$VM"
+```
+
+Terminated VMs stay listed, and an image cannot be deleted while a live VM references it. Both are recorded behaviour, and both surprise people.
 
 Transitions run on an injected clock, so `-build-delay` decides how long a build takes to become runnable. Short for tests, longer for a demo where the intermediate states should be visible:
 
@@ -135,6 +165,17 @@ KubeMicroVM's Robot Framework UAT — 63 cases written for a live EKS cluster an
 | ⚠️ | 99 Final Cleanup | 1/2 |
 
 None of the thirteen failures is m80 answering differently from real AWS — and in three of them, m80 answering *exactly* as real AWS is what exposes a bug in the operator. Four reach the VM endpoint hostname, which resolves to real AWS rather than to m80; four lose a race between the operator's resync and the UAT's 60s timeout; two want an IAM decision m80 refuses to make by design; three hit an operator finalizer that never clears because terminated MicroVMs stay listed, exactly as the real service does. The harness, every deviation from the upstream UAT, and the full breakdown are in [uat/README.md](uat/README.md).
+
+## Proving it works
+
+```sh
+just image-check     # build the image, run the conformance suite against it
+./scripts/smoke.sh   # walk this README's quick start against the container
+```
+
+`scripts/smoke.sh` is the quick start above, executed — the same commands, in the same order, asserted. It needs docker and the AWS CLI, uses no AWS account and spends nothing. CI runs it on every pull request against a freshly built image, so a walkthrough that stops working stops the build.
+
+The conformance suite runs in CI too, against a live binary. It compares every response to a fixture recorded from real AWS, so "m80 answers like the service" is a gate rather than a claim.
 
 ## Development
 
