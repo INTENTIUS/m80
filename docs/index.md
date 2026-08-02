@@ -8,7 +8,7 @@ Running their own 63-case UAT suite against m80 surfaced three issues in the ope
 
 It emulates the control plane, so a MicroVM here is a record with a state machine and a clock: nothing fetches your artifact and nothing runs it. Configuration, reconciliation, lifecycle, RBAC, quotas and teardown are real; your workload is not. See [scope](scope.md).
 
-m80 is also a standalone target for anything speaking the MicroVMs API, not only the operator:
+One container, 8 MiB, no companion process. m80 is also a standalone target for anything speaking the MicroVMs API, not only the operator:
 
 ```sh
 docker run --rm -p 4290:4290 ghcr.io/intentius/m80

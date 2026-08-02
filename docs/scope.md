@@ -27,6 +27,12 @@ The Lambda MicroVMs control plane and the minimal data-plane edges a client can 
 | Real S3 | The image source reference is recorded, not fetched |
 | Billing | Suspended-costs-nothing is a pricing fact, not wire behavior |
 
+## Why the refusals are safe for the operator
+
+KubeMicroVM depends on four AWS SDK clients and no others: `lambdamicrovms`, `lambdacore`, `sts` and `servicequotas`. There is no S3, IAM, EC2 or CloudFormation client anywhere in it. Role ARNs and S3 URIs are strings it hands to the MicroVMs API, so accepting them as opaque costs the operator nothing.
+
+The work those strings cause — the service assuming the role, fetching the object, building the image, EC2 creating ENIs — happens inside AWS and is unreachable by any emulator. See [division of labor with floci](floci.md).
+
 ## Fidelity anchors
 
 Wire shapes come from the AWS SDK service model. KubeMicroVM vendors the model JSON in `operator-aws-client/src/main/resources/codegen-resources/service-2.json`, and aws-sdk-go-v2 generates from the same source. Field parity with the generated Go client is the contract, mirroring mudflaps' fly-go rule.
