@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Brings the whole stack up from nothing: a k3d cluster, m80, floci for STS,
-# and the KubeMicroVM operator pointed at both. Idempotent — re-running
-# recreates the cluster.
+# Brings the whole stack up from nothing: a k3d cluster, m80, and the
+# KubeMicroVM operator pointed at it. Idempotent — re-running recreates the
+# cluster.
 set -euo pipefail
 
 usage() {
@@ -10,7 +10,7 @@ usage() {
 
   ./uat/up.sh
 
-Overridable by environment variable: CLUSTER, NS, M80_IMAGE, FLOCI_IMAGE,
+Overridable by environment variable: CLUSTER, NS, M80_IMAGE,
 CHART_VERSION, REGION, MAX_ACCOUNT_MEMORY_MIB.
 
 Needs docker, k3d, kubectl and helm. Uses no AWS account.
@@ -30,12 +30,6 @@ fi
 CLUSTER="${CLUSTER:-m80-uat}"
 NS="${NS:-kube-microvm}"
 M80_IMAGE="${M80_IMAGE:-ghcr.io/intentius/m80:v0.2.0}"
-# Stock upstream floci. It is here only to answer sts:GetCallerIdentity for
-# the operator's startup gate, and stock floci does that, returning account
-# 000000000000 — the same account m80 uses, so ARNs line up. The MicroVMs
-# module being proposed for floci is not needed by any part of this harness;
-# it matters for CloudFormation, which the operator path never touches.
-FLOCI_IMAGE="${FLOCI_IMAGE:-floci/floci:latest}"
 CHART_VERSION="${CHART_VERSION:-1.0.11}"
 REGION="${REGION:-us-east-1}"
 # m80 defaults to the account memory ceiling recorded from a fresh AWS account:
@@ -56,9 +50,17 @@ helm install cert-manager jetstack/cert-manager \
   --namespace cert-manager --create-namespace --set crds.enabled=true \
   --wait --timeout 6m >/dev/null
 
+# A locally built image is not in any registry, so k3d cannot pull it.
+# Importing it is what lets a contributor point the harness at their own
+# build: M80_IMAGE=m80:candidate ./uat/up.sh
+if docker image inspect "${M80_IMAGE}" >/dev/null 2>&1; then
+    echo "==> importing local image ${M80_IMAGE}"
+    k3d image import "${M80_IMAGE}" -c "${CLUSTER}" >/dev/null
+fi
+
 kubectl create namespace "${NS}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
-echo "==> m80 (the MicroVMs API) and floci (STS only)"
+echo "==> m80 (the MicroVMs API, and sts:GetCallerIdentity for the operator's startup gate)"
 kubectl apply -f - >/dev/null <<YAML
 apiVersion: apps/v1
 kind: Deployment
@@ -72,7 +74,7 @@ spec:
       containers:
         - name: m80
           image: ${M80_IMAGE}
-          args: ["-addr", ":4290", "-build-delay", "500ms", "-max-account-memory-mib", "${MAX_ACCOUNT_MEMORY_MIB}"]
+          args: ["-addr", ":4290", "-build-delay", "500ms", "-max-account-memory-mib", "${MAX_ACCOUNT_MEMORY_MIB}", "-serve-sts"]
           ports: [{ containerPort: 4290 }]
           readinessProbe:
             httpGet: { path: /_m80/health, port: 4290 }
@@ -85,23 +87,6 @@ spec:
   selector: { app: m80 }
   ports: [{ port: 4290, targetPort: 4290 }]
 ---
-apiVersion: apps/v1
-kind: Deployment
-metadata: { name: floci, namespace: ${NS} }
-spec:
-  replicas: 1
-  selector: { matchLabels: { app: floci } }
-  template:
-    metadata: { labels: { app: floci } }
-    spec:
-      # A Service named floci injects FLOCI_PORT=tcp://... which Quarkus maps
-      # onto the floci.port config property and then fails to parse as an int.
-      enableServiceLinks: false
-      containers:
-        - name: floci
-          image: ${FLOCI_IMAGE}
-          ports: [{ containerPort: 4566 }]
----
 # The Robot runner is a container on k3d's docker network, not a pod, so it
 # cannot resolve *.svc.cluster.local. Anything the suite drives with the AWS
 # CLI — the drift cases terminate a MicroVM out of band with it — needs m80
@@ -113,16 +98,8 @@ spec:
   type: NodePort
   selector: { app: m80 }
   ports: [{ port: 4290, targetPort: 4290, nodePort: 30429 }]
----
-apiVersion: v1
-kind: Service
-metadata: { name: floci, namespace: ${NS} }
-spec:
-  selector: { app: floci }
-  ports: [{ port: 4566, targetPort: 4566 }]
 YAML
 kubectl -n "${NS}" rollout status deploy/m80 --timeout=300s
-kubectl -n "${NS}" rollout status deploy/floci --timeout=300s
 
 echo "==> KubeMicroVM operator ${CHART_VERSION}"
 helm install kube-microvm-operator \
@@ -135,11 +112,12 @@ helm install kube-microvm-operator \
 # The chart templates only the env keys it knows, so credentials and the STS
 # override have to be patched in. Both are required: the operator's startup
 # gate calls sts:GetCallerIdentity with no endpoint override, and without
-# credentials the SDK's default chain finds none.
+# credentials the SDK's default chain finds none. The override points back at
+# m80, which answers that one action under -serve-sts.
 kubectl -n "${NS}" set env deploy/kube-microvm-operator \
   AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test \
   AWS_EC2_METADATA_DISABLED=true \
-  "AWS_ENDPOINT_URL_STS=http://floci.${NS}.svc.cluster.local:4566" >/dev/null
+  "AWS_ENDPOINT_URL_STS=http://m80.${NS}.svc.cluster.local:4290" >/dev/null
 kubectl -n "${NS}" rollout status deploy/kube-microvm-operator --timeout=300s
 
 kubectl label namespace default lambda.aws.amazon.com/manage-microvms=true --overwrite >/dev/null

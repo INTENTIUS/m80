@@ -147,6 +147,18 @@ WARN run rejected: account memory ceiling reached allocatedMiB=4096 requestedMiB
 
 Anything running more than two VMs at once — a ReplicaSet, an operator test suite — wants `-max-account-memory-mib` raised. Pointing KubeMicroVM's UAT at m80 lost twenty of twenty-eight cases to this before the ceiling was raised, and the operator reported it as a timeout.
 
+## Validating a deployment before it costs anything
+
+Running KubeMicroVM normally means an EKS cluster and an AWS account that bills you. Pointed at m80 it runs on k3d, so a MicroVM deployment can be checked for whether it reconciles the way you expect before any of it reaches AWS.
+
+```sh
+just uat-up     # k3d + cert-manager + m80 + the operator, about two minutes
+```
+
+Then apply real CRs and watch the operator drive them. Two containers do the emulating, m80 at 8 MiB and the operator itself; [the guide](docs/kubemicrovm.md) has a worked example.
+
+What that will not tell you is whether your code runs. m80 emulates the control plane, so a MicroVM is a record with a state machine and a clock — nothing fetches your artifact and nothing executes it. Configuration, reconciliation, lifecycle, RBAC, quotas and teardown are real; your workload is not.
+
 ## Operator proof
 
 KubeMicroVM's Robot Framework UAT is 63 cases written for a live EKS cluster and a real AWS account. It runs on k3d against m80 instead, and **50 of 63 pass**, measured 2026-08-01 against operator 1.0.11.
