@@ -33,10 +33,10 @@ jobs:
 
       - name: Open or update the drift issue
         if: steps.watch.outputs.status == '1'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
-            const fs = require('fs');
+            const fs = await import('node:fs');
             const report = fs.readFileSync('/tmp/drift.txt', 'utf8');
             const title = 'Model drift: upstream service models diverge from inventory.json';
             const body = [

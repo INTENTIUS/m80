@@ -114,14 +114,14 @@ jobs:
           go-version: "1.25"
           cache: true
 
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
 
       # Load the native image locally first so the suite can run against a
       # real container. Multi-arch cannot be --load, which is why this is a
       # separate build from the push below; both use the same cache.
       - name: Build amd64 image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           load: true
@@ -151,7 +151,7 @@ jobs:
 
       - name: Log in to GHCR
         if: github.ref_type == 'tag'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -159,7 +159,7 @@ jobs:
 
       - name: Build and push multi-arch
         if: github.ref_type == 'tag'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
@@ -198,7 +198,7 @@ jobs:
           done
           cd dist && sha256sum m80_* > checksums.txt && cat checksums.txt
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: m80-binaries
           path: dist/
