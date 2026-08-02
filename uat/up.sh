@@ -30,7 +30,12 @@ fi
 CLUSTER="${CLUSTER:-m80-uat}"
 NS="${NS:-kube-microvm}"
 M80_IMAGE="${M80_IMAGE:-ghcr.io/intentius/m80:v0.2.0}"
-FLOCI_IMAGE="${FLOCI_IMAGE:-ghcr.io/lex00/floci:microvm}"
+# Stock upstream floci. It is here only to answer sts:GetCallerIdentity for
+# the operator's startup gate, and stock floci does that, returning account
+# 000000000000 — the same account m80 uses, so ARNs line up. The MicroVMs
+# module being proposed for floci is not needed by any part of this harness;
+# it matters for CloudFormation, which the operator path never touches.
+FLOCI_IMAGE="${FLOCI_IMAGE:-floci/floci:latest}"
 CHART_VERSION="${CHART_VERSION:-1.0.11}"
 REGION="${REGION:-us-east-1}"
 # m80 defaults to the account memory ceiling recorded from a fresh AWS account:
@@ -141,5 +146,16 @@ kubectl label namespace default lambda.aws.amazon.com/manage-microvms=true --ove
 
 echo
 echo "stack up. operator health:"
-kubectl -n "${NS}" logs deploy/kube-microvm-operator --tail=200 2>/dev/null \
-  | grep -m1 "AWS connectivity confirmed" || echo "  (connectivity line not seen yet)"
+# grep -m1 exits on the first match, which SIGPIPEs kubectl, which under
+# pipefail makes the whole pipeline fail even though the line was found. So
+# capture first and match second, or a healthy stack reports itself unhealthy.
+health="$(kubectl -n "${NS}" logs deploy/kube-microvm-operator --tail=200 2>/dev/null || true)"
+if line="$(printf '%s\n' "${health}" | grep -m1 'AWS connectivity confirmed')"; then
+    echo "  ${line}"
+    echo
+    echo "  next: KUBEMICROVM=/path/to/KubeMicroVM just uat-run"
+else
+    echo "  the operator has not confirmed connectivity yet."
+    echo "  kubectl -n ${NS} logs deploy/kube-microvm-operator"
+    exit 1
+fi
