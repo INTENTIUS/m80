@@ -74,7 +74,8 @@ jobs:
             sleep 0.2
           done
           go run ./conformance/cmd/conformance \
-            -endpoint http://localhost:4290 -poll-timeout 20
+            -endpoint http://localhost:4290 -poll-timeout 20 \
+            -vm-endpoint-rewrite http://localhost:4290
 
       # Coverage is a release note, not a gate: a suite that skipped half the
       # surface could still be green.
@@ -138,7 +139,8 @@ jobs:
             sleep 0.5
           done
           go run ./conformance/cmd/conformance \
-            -endpoint http://localhost:4290 -poll-timeout 20
+            -endpoint http://localhost:4290 -poll-timeout 20 \
+            -vm-endpoint-rewrite http://localhost:4290
           docker rm -f m80
 
       - name: Log in to GHCR
