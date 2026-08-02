@@ -6,7 +6,7 @@ The MicroVM API ships as an SDK service model. Three copies are available and mu
 
 | Source | Use |
 |--------|-----|
-| `service-2.json` vendored in KubeMicroVM's `operator-aws-client` | Machine-readable operation list, shapes, paginators. The extraction target for M1 |
+| `service-2.json` vendored in KubeMicroVM's `operator-aws-client` | Machine-readable operation list, shapes, paginators. What the inventory was extracted from |
 | aws-sdk-go-v2 generated client | The wire-parity reference, the role fly-go plays for mudflaps |
 | AWS API reference docs | Human-readable semantics, error taxonomy |
 
@@ -55,7 +55,7 @@ Facts the models could not state, learned during the fixture-recording runs.
 | Create response is richer than the models | Live `CreateMicrovmImage` returns `id`, `buildPhaseOverrides`, `roleConfiguration` — fields absent from both the vendored and SDK models |
 | `UpdateMicrovmImage` (PUT) is full-replace | Omitting `baseImageArn`/`codeArtifact` gets per-member validation errors; the PUT body must carry the full required representation, not a patch |
 | `idlePolicy.autoResumeEnabled` is required | Whenever `idlePolicy` is present on `RunMicrovm` — the model marks no member of `IdlePolicy` required |
-| `SHELL_INGRESS` connectors exist | Shell auth tokens require "SHELL_INGRESS network connector to be configured on the MicroVM" — a connector type entirely absent from the model's `NetworkConnectorType` enum (`VPC_EGRESS` only). The suite records the without-ingress 400 as truth; the full shell flow is future work |
+| `SHELL_INGRESS` connectors exist | Shell auth tokens require "SHELL_INGRESS network connector to be configured on the MicroVM" — a connector type entirely absent from the model's `NetworkConnectorType` enum (`VPC_EGRESS` only). The suite records the without-ingress 400 as truth, and no request exists that would make the operation succeed |
 | `AssociatedComputeResourceTypes` is required | For VPC_EGRESS connectors — the model marks it optional. chant's `MicrovmApp` already emits it |
 | `NetworkProtocol` is required | Also for VPC_EGRESS connectors, also modeled optional — "cannot be null or empty". `MicrovmApp` emits it too |
 | Image update is asynchronous | The PUT moves the image through `UPDATING`; a version PATCH during that window gets `409 "MicroVM Image is already in state: UPDATING"` |
@@ -155,7 +155,7 @@ The seven `NetworkConnectorStateReasonCode` values (`InvalidSubnet`, `InvalidSec
 
 `CreateMicrovmAuthToken` returns `authToken`, a `TokenParts` map. The model describes it as a mapping of auth token keys to values because "some token schemes require returning multiple auth headers", so the key is a header name; the recorded scheme returns exactly one, `X-aws-proxy-auth`. The value is a JWE in compact serialization — five parts, empty encrypted-key segment because the header says `alg: dir`, header carrying a `kid` UUID and `enc: A256GCM`. m80 mints that shape from random bytes and validates by table lookup rather than by decrypting; nothing should be read out of one past the header.
 
-`expirationInMinutes` and `allowedPorts` are both required, and expiry is documented at a maximum of 60 minutes. `allowedPorts` has a minimum length of one and each member is a union — exactly one of `port`, `range` or `allPorts`. m80 enforces the port grant on the endpoint, because a token scoped to one port that opened another would pass requests the real service rejects.
+`expirationInMinutes` and `allowedPorts` are both required, and expiry is documented at a maximum of 60 minutes. `allowedPorts` has a minimum length of one and each member is a union: exactly one of `port`, `range` or `allPorts`. m80 validates that at issue time, because the control plane does reject a malformed grant. It does not enforce the grant at the endpoint, because the 2026-08-01 recording showed a token granting only port 8080 serving port 443. m80 used to enforce it, and was rejecting requests real AWS answers.
 
 `CreateMicrovmShellAuthToken` can only ever fail. The recorded response is `400 ValidationException` with "Shell access requires SHELL_INGRESS network connector to be configured on the MicroVM.", and `SHELL_INGRESS` is absent from the service model entirely — not merely unrecorded but unrepresentable, so no request exists that would make it succeed. m80 implements the rejection rather than answering 501, since the error is the operation's one observable behavior and a consumer that handles it is correctly exercised.
 
@@ -163,21 +163,18 @@ The seven `NetworkConnectorStateReasonCode` values (`InvalidSubnet`, `InvalidSec
 
 Each running VM gets an endpoint URL. m80 answers it from the same process, routed by host header or by the `/_m80/vm/{microvmId}/` path prefix for callers that cannot forge a `Host`, returning a configurable stub body (`-vm-stub-body`) and honoring `X-aws-proxy-auth` against issued tokens. The default body and an `X-M80-State-Marker` header both carry the state marker, a counter that survives suspend and resume so a client can prove the VM kept its state rather than being rebuilt underneath it.
 
-**Almost none of the endpoint's answers are recorded, and they could not have been.** The conformance runner signs and addresses control-plane requests; it has no way to call a host that is not the control plane, so recording any of this needs runner support that is not built. m80's answers:
+Every answer it gives was recorded against the live service on 2026-08-01, which needed the conformance runner to gain the ability to address a host that is not the control plane and to send a request it does not sign. Before that the endpoint was unreachable from the suite and all nine answers were inferences; four were wrong. The corrections table above has the detail.
 
-| Situation | m80 | Basis |
-|---|---|---|
-| unknown endpoint host | `404` | no VM to serve |
-| no or malformed token header | `401` | guess |
-| token unknown, expired, or another VM's | `403` | guess |
-| port outside the token's `allowedPorts` | `403` | guess |
-| VM `TERMINATED` | `410` | guess |
-| VM `PENDING` | `503` | guess |
-| VM `SUSPENDED`, `autoResumeEnabled` | resume, then `200` | inferred |
-| VM `SUSPENDED`, no `autoResumeEnabled` | `503` | guess |
-| VM `RUNNING`, token good | `200` + stub body | stub |
+| Situation | Answer |
+|---|---|
+| No token, or one that cannot be parsed | `403 Request missing authentication` |
+| A token for another VM, or a hostname naming none | `403 Token authentication failed` |
+| A token that does not grant the port | `200`, since `allowedPorts` does not gate this endpoint |
+| VM `SUSPENDED` with `autoResumeEnabled` | `200`, and the VM reads `RUNNING` immediately after |
+| VM `SUSPENDED` without it, or `TERMINATED` | `502` with an empty body |
+| VM `RUNNING`, token good | `200` and whatever the image serves |
 
-The auto-resume row is an inference rather than a guess: a suspended VM issues tokens, which is the order a client that means to wake a VM by calling it has to work in, and `autoResumeEnabled` is the member that says whether it may. The 401/403 split is the guess most worth arguing with — a single 403 would have been safer, but a missing credential and a rejected one are different failures to a client retrying with a fresh token.
+Two situations remain unrecorded because nothing reaches them. A `PENDING` VM answers as an unavailable one, on the grounds that every unavailable case that was observed answers that way. A shell token presented to the HTTP endpoint is refused as a non-matching token, since recording it needs `SHELL_INGRESS` on the image and no request exists that produces one.
 
 ## Health and introspection
 

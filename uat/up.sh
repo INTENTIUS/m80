@@ -4,9 +4,32 @@
 # recreates the cluster.
 set -euo pipefail
 
+usage() {
+    sed -n '2,/^set -euo/p' "$0" | sed 's/^# \{0,1\}//;$d'
+    cat <<'USAGE'
+
+  ./uat/up.sh
+
+Overridable by environment variable: CLUSTER, NS, M80_IMAGE, FLOCI_IMAGE,
+CHART_VERSION, REGION, MAX_ACCOUNT_MEMORY_MIB.
+
+Needs docker, k3d, kubectl and helm. Uses no AWS account.
+Guide: docs/kubemicrovm.md
+USAGE
+}
+
+# This script deletes and recreates a cluster, so an unrecognised argument
+# stops it rather than being ignored.
+if [ "$#" -gt 0 ]; then
+    case "$1" in
+        -h|--help) usage; exit 0 ;;
+        *) echo "up.sh takes no arguments (got '$1')" >&2; usage >&2; exit 2 ;;
+    esac
+fi
+
 CLUSTER="${CLUSTER:-m80-uat}"
 NS="${NS:-kube-microvm}"
-M80_IMAGE="${M80_IMAGE:-ghcr.io/intentius/m80:v0.1.0}"
+M80_IMAGE="${M80_IMAGE:-ghcr.io/intentius/m80:v0.2.0}"
 FLOCI_IMAGE="${FLOCI_IMAGE:-ghcr.io/lex00/floci:microvm}"
 CHART_VERSION="${CHART_VERSION:-1.0.11}"
 REGION="${REGION:-us-east-1}"
