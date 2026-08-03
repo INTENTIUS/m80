@@ -282,10 +282,18 @@ func (s *Service) Tags(region, arn string) (map[string]string, bool) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if conn.Tags == nil {
-		return map[string]string{}, true
+	return copyTags(conn.Tags), true
+}
+
+// copyTags hands out a copy rather than the service's own map — see the same
+// function in internal/vms for why a read accessor returning the live map is
+// a write path nobody asked for.
+func copyTags(in map[string]string) map[string]string {
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
 	}
-	return conn.Tags, true
+	return out
 }
 
 func (s *Service) SetTags(region, arn string, tags map[string]string) bool {
