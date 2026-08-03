@@ -101,6 +101,21 @@ Transitions run on an injected clock, so `-build-delay` decides how long a build
 docker run --rm -p 4290:4290 ghcr.io/intentius/m80 -build-delay 300ms
 ```
 
+Failure paths are what a consumer most needs a test target for, and they are the ones real AWS will not produce on request. `-enable-injection` exposes the levers to any client:
+
+```sh
+docker run --rm -p 4290:4290 ghcr.io/intentius/m80 -enable-injection
+
+# the next build of this image settles FAILED
+curl -X POST localhost:4290/_m80/inject -d '{"target":"build","name":"doomed"}'
+
+# the next connector of this name settles FAILED with a real reason code
+curl -X POST localhost:4290/_m80/inject \
+     -d '{"target":"connector","name":"egress","reasonCode":"SubnetOutOfIPAddresses"}'
+```
+
+Off by default: nothing under `/_m80/` is signed, so the flag is the consent. The response carries `"injected": true`, which a state m80 reached on its own never does — so a test cannot mistake an injected failure for a real one.
+
 Everything is in memory and nothing is written, so a restart is a clean account. m80 is stateful within a run — image names stay reserved through the async delete window, exactly as the real service does — so a suite that runs twice against one instance will fail the second time on `already exists`. That is fidelity, not a bug; restart between runs.
 
 m80 follows the pattern of [mudflaps](https://github.com/intentius/mudflaps) (Fly Machines) and [spritzer](https://github.com/intentius/spritzer) (Fly Sprites). A single static Go binary and distroless container that holds MicroVM images, VMs, tokens, and network connectors in memory, advances them through their lifecycle on an injected clock, and answers the real wire protocol so any SDK client works against it via endpoint override.

@@ -65,8 +65,26 @@ Transient states settle on the injected clock with short deterministic delays, t
 
 KubeMicroVM's drift detection and auto-suspend features watch for the service changing state underneath the CRs, so m80 can fail things the real service would only fail by bad luck. This is m80's version of mudflaps' failure injection, a feature the real service will never offer a test suite.
 
-Two levers exist today, and both are Go APIs rather than endpoints: `images.Service.FailNextBuild` forces the next build of a named image to `FAILED`, and `connectors.Service.FailNext` settles the next connector of a named connector into `FAILED` carrying any of the seven reason codes. Neither can be provoked against real AWS on demand — you cannot ask EC2 to run a subnet out of addresses — which is the whole reason they exist.
+Two levers: `images.Service.FailNextBuild` forces the next build of a named image to `FAILED`, and `connectors.Service.FailNext` settles the next connector of a given name into `FAILED` carrying any of the seven reason codes. Neither can be provoked against real AWS on demand — you cannot ask EC2 to run a subnet out of addresses — which is the whole reason they exist.
 
-Being Go-only bounds what they are good for. A test that imports m80 can drive them; a UAT pointed at the container cannot reach them at all.
+Both were Go-only until [#56](https://github.com/INTENTIUS/m80/issues/56). A test that imported m80 could drive them; a suite pointed at the container could not reach them at all, which is exactly backwards, since a container is what a consumer tests against.
 
-That was originally thought to block the offline drift run behind [#18](https://github.com/INTENTIUS/m80/issues/18). It did not: drift is provoked with ordinary `SuspendMicrovm` and `TerminateMicrovm` calls, which any client can make, and the [KubeMicroVM harness](kubemicrovm.md) does exactly that. The gap is real for a different reason. Failure paths are what a consumer most needs a test target for, and they are the ones m80 cannot currently be asked to take, so a test wanting to see the operator handle a failed image build has no way to cause one. Tracked as [#56](https://github.com/INTENTIUS/m80/issues/56).
+They now have an HTTP surface, off unless asked for:
+
+```sh
+docker run --rm -p 4290:4290 ghcr.io/intentius/m80 -enable-injection
+
+curl -X POST localhost:4290/_m80/inject -d '{"target":"build","name":"doomed"}'
+curl -X POST localhost:4290/_m80/inject \
+     -d '{"target":"connector","name":"egress","reasonCode":"SubnetOutOfIPAddresses"}'
+```
+
+Three things about that shape are deliberate.
+
+It is keyed by **name, not ARN**. A lever arms before the resource exists — that is what "the next build of this image fails" means — so at the moment of arming there is no ARN to name it with.
+
+The response carries **`"injected": true`**. A state m80 reached on its own never carries it, so a consumer asserting on that field cannot mistake an injected `FAILED` for one the emulator produced by its own rules.
+
+It is **off by default**. Nothing under `/_m80/` is signed, so anything that can reach the port can arm a lever; a flag is the consent, the same posture `-serve-sts` takes. Without the flag the route is still registered, and answers 404 with a message naming the flag — a bare 404 is indistinguishable from a typo in the path.
+
+The gap was originally thought to block the offline drift run behind [#18](https://github.com/INTENTIUS/m80/issues/18). It did not: drift is provoked with ordinary `SuspendMicrovm` and `TerminateMicrovm` calls, which any client can make, and the [KubeMicroVM harness](kubemicrovm.md) does exactly that. It was real for a different reason — failure paths are what a consumer most needs a test target for, and they were the ones m80 could not be asked to take.

@@ -52,6 +52,14 @@ func NewServer(c clock.Clock, s *store.Store, version string) *Server {
 	return srv
 }
 
+// Handle attaches a raw handler to a mux pattern, for the non-service surface
+// under /_m80/. Operations go through Register instead — they are routed from
+// the Routes table so an unimplemented one is a deliberate 501, and nothing
+// outside that table should be able to claim an operation's path.
+func (s *Server) Handle(pattern string, h http.HandlerFunc) {
+	s.mux.HandleFunc(pattern, h)
+}
+
 // Register attaches an implementation to an operation. Registering an unknown
 // operation panics: a typo would otherwise leave the real route on 501 while
 // the handler sat unreachable.

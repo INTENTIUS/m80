@@ -22,6 +22,7 @@ import (
 	"github.com/intentius/m80/internal/clock"
 	"github.com/intentius/m80/internal/connectors"
 	"github.com/intentius/m80/internal/images"
+	"github.com/intentius/m80/internal/inject"
 	"github.com/intentius/m80/internal/limits"
 	"github.com/intentius/m80/internal/managedimages"
 	"github.com/intentius/m80/internal/store"
@@ -56,6 +57,11 @@ func main() {
 	throttleReason := flag.String("throttle-reason", "",
 		"ThrottleReason on throttles for the connector and tags families; the MicroVM model has no Reason member")
 	retryAfter := flag.Int("throttle-retry-after-seconds", 0, "Retry-After on throttles; 0 omits it")
+	// Failure injection is destructive by design and nothing under /_m80/ is
+	// signed, so anything that can reach the port can arm a lever. Off unless
+	// asked for, same posture as -serve-sts.
+	enableInjection := flag.Bool("enable-injection", false,
+		"expose the failure-injection levers at POST /_m80/inject, so a consumer pointed at the container can provoke a failed build or a connector failure code")
 	serveSTS := flag.Bool("serve-sts", false,
 		"answer sts:GetCallerIdentity, for consumers whose startup gate calls it before they will report ready; not an STS emulation, every other action gets 501")
 	flag.Parse()
@@ -112,6 +118,12 @@ func main() {
 	connectorSvc := connectors.NewService(clk, st, *buildDelay)
 	connectors.Register(srv, connectorSvc)
 	tags.Register(srv, imageSvc, vmSvc, connectorSvc)
+	if *enableInjection {
+		inject.Register(srv, &inject.Service{Images: imageSvc, Connectors: connectorSvc})
+		log.Warn("failure injection enabled", "path", inject.Path)
+	} else {
+		inject.RegisterDisabled(srv)
+	}
 	tokenSvc := tokens.NewService(clk)
 	tokens.Register(srv, tokenSvc, vmSvc)
 	// A VM's endpoint is a different host answered by the same process, so it

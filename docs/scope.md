@@ -14,6 +14,7 @@ The Lambda MicroVMs control plane and the minimal data-plane edges a client can 
 | Network connectors | CRUD for VPC egress connectors, subnet and security group references accepted as opaque strings, service limits enforced |
 | `sts:GetCallerIdentity` | Off unless `-serve-sts`. A shim for consumers whose startup gate calls it, not an STS emulation: every other action answers 501. See [standing up KubeMicroVM](kubemicrovm.md) |
 | Limits | The five memory tiers, name patterns and lengths, connector subnet and security-group bounds, token expiry and port grants, the recorded account memory ceiling |
+| Failure injection | Off unless `-enable-injection`. `POST /_m80/inject` arms a build that settles `FAILED`, or a connector that settles `FAILED` with one of the seven reason codes — the failures real AWS will not produce on request. See [lifecycle](lifecycle.md#drift-levers) |
 
 ## Refused, on purpose
 
