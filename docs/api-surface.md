@@ -178,6 +178,6 @@ Two situations remain unrecorded because nothing reaches them. A `PENDING` VM an
 
 ## Health and introspection
 
-`/_m80/health` reports implemented operations against the model inventory, the mudflaps convention, plus the regions the store has been asked about. `/_m80/vm/{microvmId}/` reaches a VM's endpoint stub without forging a `Host` header.
+`/_m80/health` reports implemented operations against the model inventory, the mudflaps convention, plus the regions the store has been asked about. `/_m80/vm/{microvmId}/` reaches a VM's endpoint stub without forging a `Host` header. `POST /_m80/inject` arms a failure — a build that settles `FAILED`, or a connector that settles `FAILED` with one of the seven reason codes — and answers 404 naming the flag unless m80 was started with `-enable-injection`. See [Lifecycle](lifecycle.md#drift-levers).
 
 There is no clock endpoint. Transitions run on an injected clock and Go tests advance it directly, but nothing exposes that over HTTP, so a black-box client cannot skip a delay — it waits, or it starts m80 with a shorter `-build-delay`. An earlier draft of this page described a `/_m80/clock` hook that was never built.

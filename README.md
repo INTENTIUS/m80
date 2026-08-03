@@ -12,6 +12,8 @@ Then apply a `MicroVMImage` and a `MicroVM` and watch the operator drive them.
 
 One emulator, 8 MiB, next to the real operator on a real cluster. No AWS account, no credentials, no bill. The [guide](docs/kubemicrovm.md) has a worked example that goes from nothing to a running MicroVM.
 
+One flag matters for that path and is easy to miss: the operator's startup gate calls `sts:GetCallerIdentity` before it will report ready, with no endpoint override of its own, so pointing `AWS_ENDPOINT_URL_STS` at an m80 started with `-serve-sts` is what lets it boot at all. It is a shim for that one action, not an STS emulation — everything else under STS answers 501. Filed upstream as [KubeMicroVM#50](https://github.com/codriverlabs/KubeMicroVM/issues/50); when the override lands the shim can go.
+
 ## Does it actually catch anything?
 
 Running KubeMicroVM's own 63-case UAT suite against m80 surfaced three issues in the operator, none of which needed an AWS account to find.
@@ -100,6 +102,21 @@ Transitions run on an injected clock, so `-build-delay` decides how long a build
 ```sh
 docker run --rm -p 4290:4290 ghcr.io/intentius/m80 -build-delay 300ms
 ```
+
+Failure paths are what a consumer most needs a test target for, and they are the ones real AWS will not produce on request. `-enable-injection` exposes the levers to any client:
+
+```sh
+docker run --rm -p 4290:4290 ghcr.io/intentius/m80 -enable-injection
+
+# the next build of this image settles FAILED
+curl -X POST localhost:4290/_m80/inject -d '{"target":"build","name":"doomed"}'
+
+# the next connector of this name settles FAILED with a real reason code
+curl -X POST localhost:4290/_m80/inject \
+     -d '{"target":"connector","name":"egress","reasonCode":"SubnetOutOfIPAddresses"}'
+```
+
+Off by default: nothing under `/_m80/` is signed, so the flag is the consent. The response carries `"injected": true`, which a state m80 reached on its own never does — so a test cannot mistake an injected failure for a real one.
 
 Everything is in memory and nothing is written, so a restart is a clean account. m80 is stateful within a run — image names stay reserved through the async delete window, exactly as the real service does — so a suite that runs twice against one instance will fail the second time on `already exists`. That is fidelity, not a bug; restart between runs.
 
