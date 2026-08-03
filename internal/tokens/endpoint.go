@@ -59,6 +59,9 @@ const defaultPort = 443
 // Bodies are plain text, not the modeled error shape, which fits: this is a
 // proxy in front of the VM rather than the control plane.
 //
+// UNRECORDED: endpoint-pending-vm — extrapolate
+// UNRECORDED: endpoint-shell-token — extrapolate
+//
 // Two situations stay guesses because nothing recorded reaches them. A
 // PENDING VM answers as an unavailable one, 502 with an empty body, on the
 // grounds that every unavailable case AWS was observed on answers that way.

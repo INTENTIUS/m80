@@ -203,6 +203,8 @@ func (s *Service) Run(region, imageArn, imageVersion string, memoryMiB int, idle
 
 // Suspend walks a VM to SUSPENDED through SUSPENDING.
 //
+// UNRECORDED: suspend-non-running — safest-of-two
+//
 // Suspending an already suspending or suspended VM is a no-op answered 200,
 // and so is suspending one on its way to TERMINATED. Neither was recorded, and
 // between inventing an error type and being idempotent, idempotent is the
@@ -336,6 +338,8 @@ func (s *Service) Wake(region, id string) {
 	s.Resume(vm)
 }
 
+// UNRECORDED: terminating-visible — follow-the-model
+//
 // Terminate walks the VM to TERMINATED through TERMINATING. The recording
 // never sampled TERMINATING at a five-second poll, but it is in the enum and
 // a faster client can see it, so m80 goes through it rather than jumping.
@@ -404,6 +408,7 @@ func (s *Service) terminateLocked(vm *VM) {
 		s.setStateLocked(vm, StateTerminated)
 		now := s.clock.Now()
 		vm.TerminatedAt = &now
+		// UNRECORDED: cap-terminated-reason — reuse-recorded
 		// Recorded: a cleanly terminated VM reports exactly this, trailing
 		// period included. A VM the suspend cap or the session cap ended
 		// reports it too — the service's wording for those paths was never
