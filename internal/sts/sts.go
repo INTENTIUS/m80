@@ -77,6 +77,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	action := r.PostForm.Get("Action")
 	if action != Action {
+		// UNRECORDED: sts-other-actions — refuse
 		// 501 rather than an STS-shaped error, because this is not STS being
 		// unable to do something. It is m80 declining to pretend to be STS,
 		// and a caller reading the message should come away knowing that.

@@ -34,6 +34,10 @@ KubeMicroVM depends on four AWS SDK clients and no others: `lambdamicrovms`, `la
 
 The work those strings cause — the service assuming the role, fetching the object, building the image, EC2 creating ENIs — happens inside AWS and is unreachable by any emulator. See [division of labor with floci](floci.md).
 
+## When neither a recording nor the model decides
+
+Some requests reach neither: the model permits them and nothing was ever recorded doing them. m80 has a stated rule for those, and a list of the seven places it has had to use it — see [when m80 has not seen it](unrecorded.md). The short version is that m80 will omit, reuse or refuse before it invents, because a wrong invented value is the one kind of answer a consumer cannot recover from.
+
 ## Fidelity anchors
 
 Wire shapes come from the AWS SDK service model. KubeMicroVM vendors the model JSON in `operator-aws-client/src/main/resources/codegen-resources/service-2.json`, and aws-sdk-go-v2 generates from the same source. Field parity with the generated Go client is the contract, mirroring mudflaps' fly-go rule.

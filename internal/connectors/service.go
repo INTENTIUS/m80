@@ -170,6 +170,8 @@ func (s *Service) Create(region, account, name, operatorRole, clientToken string
 // full VpcEgressConfiguration and replaces what was there, so this is not a
 // merge.
 //
+// UNRECORDED: connector-update-reason — omit
+//
 // The recorded LastUpdateStatusReason is "No configuration changes detected",
 // which the live service answered to an update that changed nothing. m80
 // reports it the same way when the incoming configuration equals the stored
