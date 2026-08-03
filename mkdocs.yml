@@ -39,11 +39,12 @@ markdown_extensions:
 
 nav:
   - Overview: index.md
+  - Using it: using-it.md
+  - Standing up KubeMicroVM: kubemicrovm.md
   - Scope: scope.md
   - API surface: api-surface.md
   - Lifecycle: lifecycle.md
   - Conformance: conformance.md
   - When m80 has not seen it: unrecorded.md
-  - Standing up KubeMicroVM: kubemicrovm.md
   - Division of labor with floci: floci.md
   - Roadmap: roadmap.md

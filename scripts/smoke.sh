@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# The README quick start, executed. Everything here is copied from README.md
-# rather than written for CI, so a step that stops working here is a step
-# that has stopped working for whoever reads it.
+# The quick start, executed. Everything here is copied from docs/using-it.md
+# rather than written for CI, so a step that stops working here is a step that
+# has stopped working for whoever reads it.
 #
 #   ./scripts/smoke.sh [image] [port]
 #
