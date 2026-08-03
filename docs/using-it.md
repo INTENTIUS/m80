@@ -24,6 +24,29 @@ cfg, _ := config.LoadDefaultConfig(ctx,
     config.WithBaseEndpoint("http://localhost:4290"))
 ```
 
+## Every flag
+
+Nothing here is required — m80 with no arguments is the one in the quick start.
+
+| Flag | Default | What it does |
+|------|---------|--------------|
+| `-addr` | `:4290` | Listen address |
+| `-log-level` | `info` | `debug`, `info`, `warn` or `error` |
+| `-version` | | Print the version and exit |
+| `-build-delay` | `1s` | How long one build state transition takes on the injected clock |
+| `-vm-stub-body` | | File whose contents a VM's endpoint returns, instead of m80's default |
+| `-serve-sts` | off | Answer `sts:GetCallerIdentity`, for a consumer whose startup gate calls it. Not an STS emulation — every other action gets 501 |
+| `-enable-injection` | off | Expose the failure-injection levers at `POST /_m80/inject` |
+| `-max-account-memory-mib` | `4096` | Account allocated-memory ceiling across running VMs; `0` to uncap |
+| `-max-microvms` | uncapped | Cap on non-terminal VMs |
+| `-max-concurrent-snapshot-creates` | uncapped | Cap on in-flight image builds |
+| `-throttle-requests-per-interval` | off | Requests allowed per interval before throttling |
+| `-throttle-interval-seconds` | `1` | Length of the throttle interval |
+| `-throttle-reason` | | `ThrottleReason` on throttles for the connector and tags families |
+| `-throttle-retry-after-seconds` | | `Retry-After` on throttles; `0` omits it |
+
+`scripts/docs-consistency.sh` fails the build when this table and the binary disagree in either direction, so a flag added without a row stops CI.
+
 ## The whole loop, from nothing to a running VM
 
 Every operation the AWS CLI knows works against m80. The one thing worth saying up front is that the identifier flags are not uniform — images take `--image-identifier`, VMs take `--microvm-identifier` — which is the service's naming, not m80's.
