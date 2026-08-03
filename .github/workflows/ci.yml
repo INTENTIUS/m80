@@ -100,11 +100,27 @@ jobs:
               sys.exit("still pending: " + ", ".join(cov["notImplementedYet"]))
           PY
 
-  # Someone arriving at the README has a docker daemon and the AWS CLI and
+  # A walkthrough nobody executes rots, and a claim nobody checks drifts. #54
+  # lists README-versus-docs drift as an open item with the note "they have
+  # drifted before" — they had, twice, and both times it was closed by reading.
+  # This is the part with a single right answer: the flags the binary has, and
+  # the operation counts the prose quotes.
+  docs-consistency:
+    name: Docs agree with the binary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.25"
+          cache: true
+      - run: ./scripts/docs-consistency.sh
+
+  # Someone arriving at the docs has a docker daemon and the AWS CLI and
   # nothing else. This runs the quick start verbatim against the image the
   # release would publish, because a walkthrough nobody executes rots.
   smoke:
-    name: README quick start against the container
+    name: Quick start against the container
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
