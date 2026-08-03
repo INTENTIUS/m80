@@ -308,10 +308,26 @@ func (s *Service) Tags(region, arn string) (map[string]string, bool) {
 	if !ok || !strings.Contains(arn, ":microvm-image:") {
 		return nil, false
 	}
-	if img.Tags == nil {
-		return map[string]string{}, true
+	// Under the lock, and copied. SetTags writes this field under the same
+	// mutex and this read took none, so a concurrent TagResource and ListTags
+	// against one image raced on the map reference — a real race in the
+	// shipped binary, invisible to the suite because nothing exercised tag
+	// reads and writes at the same time.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return copyTags(img.Tags), true
+}
+
+// copyTags hands out a copy rather than the service's own map. Returning the
+// live one makes a read accessor a write path: a caller that writes a key
+// writes service state with no lock held. Every caller today copies before
+// mutating, so nothing was broken — the contract was.
+func copyTags(in map[string]string) map[string]string {
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
 	}
-	return img.Tags, true
+	return out
 }
 
 func (s *Service) SetTags(region, arn string, tags map[string]string) bool {

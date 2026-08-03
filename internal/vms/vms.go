@@ -183,9 +183,12 @@ func (s *Service) Run(region, imageArn, imageVersion string, memoryMiB int, idle
 		// The endpoint hostname is a bare UUID, not the microvm- prefixed id.
 		Endpoint: newUUID() + ".lambda-microvm." + region + ".on.aws",
 	}
+	// Read the sequence before publishing. After Put the VM is reachable from
+	// List and Get, so another goroutine may be inside Suspend or Terminate
+	// writing stateSeq while this reads it — a narrow window, and a real one.
+	seq := vm.stateSeq
 	s.collection(region).Put(id, vm)
 
-	seq := vm.stateSeq
 	s.clock.After(s.Transition, func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
@@ -499,10 +502,23 @@ func (s *Service) Tags(region, arn string) (map[string]string, bool) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if vm.Tags == nil {
-		return map[string]string{}, true
+	return copyTags(vm.Tags), true
+}
+
+// copyTags hands out a copy rather than the service's own map.
+//
+// Returning the live map made a read accessor a write path: a caller that
+// ranged over it while SetTags replaced the reference was fine, but one that
+// wrote a key wrote VM state with no lock held. Every caller today copies
+// before mutating (internal/tags/handlers.go), so nothing was broken — the
+// contract was, and it was correct only by the good manners of its one
+// consumer. A map this size costs nothing to copy.
+func copyTags(in map[string]string) map[string]string {
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
 	}
-	return vm.Tags, true
+	return out
 }
 
 func (s *Service) SetTags(region, arn string, tags map[string]string) bool {
