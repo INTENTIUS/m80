@@ -10,10 +10,11 @@ usage() {
 
   ./uat/up.sh
 
-Overridable by environment variable: CLUSTER, NS, M80_IMAGE,
-CHART_VERSION, REGION, MAX_ACCOUNT_MEMORY_MIB.
+Overridable by environment variable: NS, M80_IMAGE,
+CHART_VERSION, REGION, MAX_ACCOUNT_MEMORY_MIB. The cluster's name and
+shape are declared in uat/cluster/cluster.ts, not overridable here.
 
-Needs docker, k3d, kubectl and helm. Uses no AWS account.
+Needs docker, k3d, kubectl, helm, node and npm. Uses no AWS account.
 Guide: docs/kubemicrovm.md
 USAGE
 }
@@ -27,9 +28,16 @@ if [ "$#" -gt 0 ]; then
     esac
 fi
 
+# The name of record is the declaration's (uat/cluster/cluster.ts). A CLUSTER
+# override that disagrees would create one cluster and talk to another.
 CLUSTER="${CLUSTER:-m80-uat}"
+if [ "${CLUSTER}" != "m80-uat" ]; then
+    echo "CLUSTER=${CLUSTER} disagrees with the declared cluster (uat/cluster/cluster.ts:" >&2
+    echo "m80-uat). The declaration is where the name changes." >&2
+    exit 1
+fi
 NS="${NS:-kube-microvm}"
-M80_IMAGE="${M80_IMAGE:-ghcr.io/intentius/m80:v0.2.0}"
+M80_IMAGE="${M80_IMAGE:-ghcr.io/intentius/m80:v0.4.0}"
 CHART_VERSION="${CHART_VERSION:-1.0.11}"
 REGION="${REGION:-us-east-1}"
 # m80 defaults to the account memory ceiling recorded from a fresh AWS account:
@@ -41,7 +49,13 @@ MAX_ACCOUNT_MEMORY_MIB="${MAX_ACCOUNT_MEMORY_MIB:-262144}"
 
 echo "==> cluster ${CLUSTER}"
 k3d cluster delete "${CLUSTER}" >/dev/null 2>&1 || true
-k3d cluster create "${CLUSTER}" --agents 1 --wait --timeout 300s >/dev/null
+# The cluster's shape lives in uat/cluster/cluster.ts, not in flags here —
+# chant emits the SimpleConfig and k3d consumes it verbatim, ownership labels
+# and all. --wait/--timeout stay flags: lifecycle, not shape.
+HERE="$(cd "$(dirname "$0")" && pwd)"
+(cd "${HERE}/cluster" && npm install --no-audit --no-fund >/dev/null \
+    && npx chant build . -o dist/k3d-uat.yaml --format yaml >/dev/null)
+k3d cluster create --config "${HERE}/cluster/dist/k3d-uat.yaml" --wait --timeout 300s >/dev/null
 
 echo "==> cert-manager (operator webhooks need it; EKS clusters in the upstream flow already have it)"
 helm repo add jetstack https://charts.jetstack.io >/dev/null 2>&1 || true
@@ -127,13 +141,25 @@ echo "stack up. operator health:"
 # grep -m1 exits on the first match, which SIGPIPEs kubectl, which under
 # pipefail makes the whole pipeline fail even though the line was found. So
 # capture first and match second, or a healthy stack reports itself unhealthy.
-health="$(kubectl -n "${NS}" logs deploy/kube-microvm-operator --tail=200 2>/dev/null || true)"
-if line="$(printf '%s\n' "${health}" | grep -m1 'AWS connectivity confirmed')"; then
+#
+# And poll, briefly: the env patches above restart the operator pod, so a
+# single read races the fresh pod's startup gate — the confirmation lands a
+# few seconds after the rollout reports done, and a healthy stack reported
+# itself broken by exactly that gap once.
+line=""
+for _ in $(seq 1 24); do
+    health="$(kubectl -n "${NS}" logs deploy/kube-microvm-operator --tail=200 2>/dev/null || true)"
+    if line="$(printf '%s\n' "${health}" | grep -m1 'AWS connectivity confirmed')"; then
+        break
+    fi
+    sleep 5
+done
+if [ -n "${line}" ]; then
     echo "  ${line}"
     echo
     echo "  next: KUBEMICROVM=/path/to/KubeMicroVM just uat-run"
 else
-    echo "  the operator has not confirmed connectivity yet."
+    echo "  the operator has not confirmed connectivity within 120s."
     echo "  kubectl -n ${NS} logs deploy/kube-microvm-operator"
     exit 1
 fi

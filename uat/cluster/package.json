@@ -1,0 +1,9 @@
+{
+  "name": "m80-uat-cluster",
+  "private": true,
+  "description": "The UAT harness's k3d cluster, declared — a self-contained chant mini-project, dev-only",
+  "devDependencies": {
+    "@intentius/chant": "^0.41.15",
+    "@intentius/chant-lexicon-k3d": "^0.41.15"
+  }
+}
