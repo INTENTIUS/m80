@@ -147,7 +147,7 @@ m80 -throttle-requests-per-interval 10 -throttle-interval-seconds 1 \
 
 `-throttle-reason` is observable on the connector and tags operations, whose models carry `TooManyRequestsException.Reason`. The MicroVM family has no such member and throttles as `ThrottlingException` instead.
 
-**The memory ceiling is the one that catches people.** 4096 MiB is the number recorded from a fresh AWS account, and at the 2048 MiB default tier it is two concurrent MicroVMs — a third gets `402 ServiceQuotaExceededException`. The recorded body names no number and no knob, so m80 logs one:
+**The memory ceiling is the one that catches people.** 4096 MiB is the number recorded from a fresh AWS account, and at the 2048 MiB default tier it is two concurrent MicroVMs — a third gets `402 ServiceQuotaExceededException`. Since that recording, the ceiling has become visible directly: it is the Service Quotas entry "Max allocated MicroVM memory" (lambda, `L-CD1C0CC4`), and a fresh account read 8 GB there on 2026-08-06 — so the base varies per account, and yours is one CLI call away rather than an inference. The recorded 402 body names no number and no knob, so m80 logs one:
 
 ```
 WARN run rejected: account memory ceiling reached allocatedMiB=4096 requestedMiB=2048

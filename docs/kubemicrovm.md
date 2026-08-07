@@ -139,7 +139,7 @@ Each of these is a difference between this harness and the EKS run the suite was
 ## Pass matrix
 
 <!-- matrix:start -->
-Run 2026-08-01 against m80 v0.1.0 and operator 1.0.11, excluding the performance suite. Not re-measured against v0.2.0: the only behaviour that changed is the per-VM endpoint, and the cases that touch it never reach m80 (see the first failure group).
+Run 2026-08-01 against m80 v0.1.0 and operator 1.0.11, excluding the performance suite. Not re-measured against v0.2.0 — the only behaviour that changed there is the per-VM endpoint, and the cases that touch it never reach m80 (see the first failure group) — nor against v0.3–v0.4 (current: v0.4.0). A standing re-measure is exactly what [#61](https://github.com/INTENTIUS/m80/issues/61) proposes: their UAT in CI, so this number stops being a snapshot.
 
 **50 of 63 cases pass.**
 

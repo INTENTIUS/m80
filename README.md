@@ -46,7 +46,7 @@ deleted while a live VM references it. Both are recorded behaviour, not bugs.
 | [Lifecycle](docs/lifecycle.md) | The state machines, and the failure-injection levers |
 | [Conformance](docs/conformance.md) | The suite that gates it |
 | [floci](docs/floci.md) | Why CloudFormation emulation lives elsewhere |
-| [Roadmap](docs/roadmap.md) | Where this went and what is left |
+| [Issues](https://github.com/INTENTIUS/m80/issues) | What is planned or open — the only place that lives |
 
 The full documentation site is at [intentius.github.io/m80](https://intentius.github.io/m80/).
 
