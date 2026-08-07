@@ -38,7 +38,7 @@ deleted while a live VM references it. Both are recorded behaviour, not bugs.
 
 [**Using it**](using-it.md) is the whole loop, from nothing to a running VM. [**Standing up KubeMicroVM**](kubemicrovm.md) is the operator on k3d against m80, which is why m80 exists.
 
-Then, in whatever order the question arrives in: [scope](scope.md) is what it emulates and what it refuses, [when m80 has not seen it](unrecorded.md) is where it is guessing and the rule it follows, [API surface](api-surface.md) is the 29 operations and their sources of truth, [lifecycle](lifecycle.md) is the state machines and the failure-injection levers, [conformance](conformance.md) is the suite that gates it, [floci](floci.md) is why CloudFormation emulation lives elsewhere, and [roadmap](roadmap.md) is where this went and what is left.
+Then, in whatever order the question arrives in: [scope](scope.md) is what it emulates and what it refuses, [when m80 has not seen it](unrecorded.md) is where it is guessing and the rule it follows, [API surface](api-surface.md) is the 29 operations and their sources of truth, [lifecycle](lifecycle.md) is the state machines and the failure-injection levers, [conformance](conformance.md) is the suite that gates it, and [floci](floci.md) is why CloudFormation emulation lives elsewhere. What is planned or open lives in [the issues](https://github.com/INTENTIUS/m80/issues), nowhere else.
 
 ## Status
 
