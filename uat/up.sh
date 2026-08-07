@@ -38,7 +38,7 @@ if [ "${CLUSTER}" != "m80-uat" ]; then
 fi
 NS="${NS:-kube-microvm}"
 M80_IMAGE="${M80_IMAGE:-ghcr.io/intentius/m80:v0.4.0}"
-CHART_VERSION="${CHART_VERSION:-1.0.11}"
+CHART_VERSION="${CHART_VERSION:-1.0.12}"
 REGION="${REGION:-us-east-1}"
 # m80 defaults to the account memory ceiling recorded from a fresh AWS account:
 # 4096 MiB, which at the 2048 MiB default tier is two concurrent MicroVMs. The
@@ -55,7 +55,14 @@ k3d cluster delete "${CLUSTER}" >/dev/null 2>&1 || true
 HERE="$(cd "$(dirname "$0")" && pwd)"
 (cd "${HERE}/cluster" && npm install --no-audit --no-fund >/dev/null \
     && npx chant build . -o dist/k3d-uat.yaml --format yaml >/dev/null)
-k3d cluster create --config "${HERE}/cluster/dist/k3d-uat.yaml" --wait --timeout 300s >/dev/null
+# The kubeconfig flags repeat what the declared config already says, on
+# purpose: k3d 5.8.3 was observed ignoring `options.kubeconfig` when it
+# comes via --config (twice, across two repos), and every kubectl call
+# below relies on the ambient context being this cluster. Stated as flags,
+# the behaviour is deterministic whatever the config loader does.
+k3d cluster create --config "${HERE}/cluster/dist/k3d-uat.yaml" \
+    --kubeconfig-update-default --kubeconfig-switch-context \
+    --wait --timeout 300s >/dev/null
 
 echo "==> cert-manager (operator webhooks need it; EKS clusters in the upstream flow already have it)"
 helm repo add jetstack https://charts.jetstack.io >/dev/null 2>&1 || true

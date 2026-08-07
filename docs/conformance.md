@@ -15,7 +15,7 @@ HTTP-level, language-agnostic, pointed at an endpoint URL. No SDK in the suite i
 | Target | Purpose | Where it stands |
 |--------|---------|-----------------|
 | Real AWS | Record fixtures, verify the suite itself. Runs rarely, costs money, needs an account | Recorded 2026-07-29, 07-30 and 08-01 |
-| m80 | The full suite, every operation, every lifecycle path, every error | 100 checks, 0 failures, 29/29 operations |
+| m80 | The full suite, every operation, every lifecycle path, every error | 101 checks, 0 failures, 29/29 operations |
 | floci module | The CFN-sufficient subset, tagged so the narrower scope is explicit rather than a pile of skips | 26 checks, 0 failures at `-tier load-bearing` |
 
 Cases record whether a behaviour is fixture-backed against the real service or documented-only, and coverage against the 29-operation inventory falls out of every run.

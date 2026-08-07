@@ -140,34 +140,36 @@ Each of these is a difference between this harness and the EKS run the suite was
 ## Pass matrix
 
 <!-- matrix:start -->
-First recorded 2026-08-01 against m80 v0.1.0 and operator 1.0.11, excluding the performance suite; re-measured 2026-08-06 against v0.4.0 with the identical result. Since #61 landed this is no longer a snapshot: CI runs the whole suite against every commit's build (`.github/workflows/uat.yml`) and holds the run to exactly this matrix in both directions — a new failure fails the build, and a listed failure that starts passing fails it too, until this page and `uat/expected-failures.txt` move with it.
+First recorded 2026-08-01 against m80 v0.1.0 and operator 1.0.11; current record 2026-08-06 against operator chart 1.0.12, whose finalizer fix ([KubeMicroVM#51](https://github.com/codriverlabs/KubeMicroVM/issues/51) — a bug this harness found) moved two cases into the passing column. Since #61 landed this is no longer a snapshot: CI runs the whole suite against every commit's build (`.github/workflows/uat.yml`) and holds the run to exactly this matrix in both directions — a new failure fails the build, and a listed failure that starts passing fails it too, until this page and `uat/expected-failures.txt` move with it.
 
-**50 of 63 cases pass.**
+**52 of 63 cases pass.**
 
 | | Suite | Passed |
 |---|---|---|
 | ⚠️ | 00 Cluster Setup | 6/7 |
-| ⚠️ | 01 Quick Start | 7/9 |
+| ⚠️ | 01 Quick Start | 8/9 |
 | ⚠️ | 02 Rbac | 6/8 |
 | ⚠️ | 03 Networking | 2/5 |
 | ⚠️ | 04 Pod Token Injection | 8/9 |
-| ⚠️ | 05 Replicaset | 5/6 |
+| ✅ | 05 Replicaset | 6/6 |
 | ✅ | 06 Microvm Class | 6/6 |
 | ⚠️ | 07 Drift Autosuspend | 4/5 |
 | ⚠️ | 08 Memory Sizing | 5/6 |
 | ⚠️ | 99 Final Cleanup | 1/2 |
 
-### Why the thirteen fail
+### Why the eleven fail
 
-None is m80 answering differently from real AWS. In two cases m80 answering *exactly* as real AWS is what exposes an operator bug.
+None is m80 answering differently from real AWS.
 
-**Reach the endpoint but not m80 (4).** `QS-07`, `NET-02`, `INJ-08`, `AUTO-02`, all `Token authentication failed`. The token is minted by m80 correctly; the suite then curls `https://<uuid>.lambda-microvm.<region>.on.aws/`, that hostname resolves to real AWS, and AWS rejects an m80-issued token. The call never reaches m80. Recording the endpoint against live AWS in [#42](https://github.com/INTENTIUS/m80/issues/42) confirmed this from the other end: `Token authentication failed` is verbatim what AWS returns for a token that does not match the VM the hostname names. Reaching m80 instead needs wildcard DNS *and* TLS, tracked in [#45](https://github.com/INTENTIUS/m80/issues/45).
+**Reach the endpoint but not m80 (3).** `NET-02`, `INJ-08`, `AUTO-02`, all `Token authentication failed`. The token is minted by m80 correctly; the suite then curls `https://<uuid>.lambda-microvm.<region>.on.aws/`, that hostname resolves to real AWS, and AWS rejects an m80-issued token. The call never reaches m80. Recording the endpoint against live AWS in [#42](https://github.com/INTENTIUS/m80/issues/42) confirmed this from the other end: `Token authentication failed` is verbatim what AWS returns for a token that does not match the VM the hostname names. Reaching m80 instead needs wildcard DNS *and* TLS, tracked in [#45](https://github.com/INTENTIUS/m80/issues/45).
 
-**Lose a race with the operator's resync (4).** `RBAC-05`, `NET-01`, `NET-04`, `MEM-07`, reporting `Endpoint for <vm> did not resolve within 60s`. Not DNS: the UAT polls the CR field `.status.endpointUrl`, which the operator leaves at `PENDING` until its next reconcile. Measured at 61 to 65 seconds against a 60 second allowance. Raising `-build-delay` tenfold moved it four seconds, so the interval is the operator's, and the race is as tight against real AWS.
+**Lose a race with the operator's resync (5).** `QS-07`, `RBAC-05`, `NET-01`, `NET-04`, `MEM-07`, reporting `Endpoint for <vm> did not resolve within 60s`. Not DNS: the UAT polls the CR field `.status.endpointUrl`, which the operator leaves at `PENDING` until its next reconcile. Measured at 61 to 65 seconds against a 60 second allowance. Raising `-build-delay` tenfold moved it four seconds, so the interval is the operator's, and the race is as tight against real AWS. A case on the losing side of this race sometimes gets far enough to fail as the first group instead — the two groups trade members between runs; their union is stable.
 
 **Want an AWS-side identity decision (2).** `Pod Identity Association Exists` has none on k3d. `RBAC-06` expects `not authorized`; m80 accepts and echoes IAM without evaluating it, which [scope.md](scope.md) refuses on purpose.
 
-**Hit an operator bug that m80's fidelity exposes (3).** `RS-06`, `99 Final Cleanup`, and `QS-08`. A deleted MicroVM CR keeps its finalizer forever while the operator logs `Cleaning up …` every ten seconds. The MicroVM is present and correctly `TERMINATED`, with `stateReason: "Success."`. The cleanup path appears to wait for it to *disappear*, and it never does, because terminated MicroVMs stay listed, which is recorded live behaviour. Against real AWS the same CR would hang for as long as AWS retains the VM. Filed as [KubeMicroVM#51](https://github.com/codriverlabs/KubeMicroVM/issues/51), where the maintainers have said they intend to fix it.
+**Inherit the debris (1).** `99 Final Cleanup` counts every resource left behind, and the endpoint-race failures above it abandon theirs — `MicroVMImages still exist` names whichever image `MEM-07` was mid-verifying when its clock ran out. It fails as a consequence, not a cause; it would pass the moment the race group did.
+
+Until chart 1.0.12, a fifth group existed: `QS-08` and `RS-06` (and `99` for this reason rather than debris) hit an operator bug m80's fidelity exposed — a deleted CR whose finalizer never cleared. That is [#51](https://github.com/codriverlabs/KubeMicroVM/issues/51), fixed upstream in v1.0.12, and verifying the fix took one more recording: the operator's new cleanup re-issues the terminate, m80 was answering the retry with an extrapolated 400, and the real service turned out to accept it idempotently ([#83](https://github.com/INTENTIUS/m80/issues/83), recorded 2026-08-06). The emulator was the last thing standing between the fix and the passing column — which is the correct order for an emulator to be wrong in: visibly, and once.
 
 <!-- matrix:end -->
 
