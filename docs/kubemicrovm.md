@@ -140,7 +140,7 @@ Each of these is a difference between this harness and the EKS run the suite was
 ## Pass matrix
 
 <!-- matrix:start -->
-Run 2026-08-01 against m80 v0.1.0 and operator 1.0.11, excluding the performance suite. Not re-measured against v0.2.0 — the only behaviour that changed there is the per-VM endpoint, and the cases that touch it never reach m80 (see the first failure group) — nor against v0.3–v0.4 (current: v0.4.0). A standing re-measure is exactly what [#61](https://github.com/INTENTIUS/m80/issues/61) proposes: their UAT in CI, so this number stops being a snapshot.
+First recorded 2026-08-01 against m80 v0.1.0 and operator 1.0.11, excluding the performance suite; re-measured 2026-08-06 against v0.4.0 with the identical result. Since #61 landed this is no longer a snapshot: CI runs the whole suite against every commit's build (`.github/workflows/uat.yml`) and holds the run to exactly this matrix in both directions — a new failure fails the build, and a listed failure that starts passing fails it too, until this page and `uat/expected-failures.txt` move with it.
 
 **50 of 63 cases pass.**
 
