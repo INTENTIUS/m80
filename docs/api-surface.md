@@ -7,7 +7,7 @@ The MicroVM API ships as an SDK service model. Three copies are available and mu
 | Source | Use |
 |--------|-----|
 | `service-2.json` vendored in KubeMicroVM's `operator-aws-client` | Machine-readable operation list, shapes, paginators. What the inventory was extracted from |
-| aws-sdk-go-v2 generated client | The wire-parity reference, the role fly-go plays for mudflaps |
+| aws-sdk-go-v2 generated client | The wire-parity reference — the provider-generated client that decides field truth |
 | AWS API reference docs | Human-readable semantics, error taxonomy |
 
 Cross-checked 2026-07-29 (#2). aws-sdk-go-v2 ships both services (`service/lambdamicrovms`, `service/lambdacore`; Smithy models `lambda-microvms.json` and `lambda-core.json` under `codegen/sdk-codegen/aws-models/`). Operation lists and every enum match the vendored copies exactly. The SDK's Smithy models are canonical for the wire-parity contract from here, since AWS publishes them continuously. The sigv4 signing name is `lambda` for both services (sdkIds `Lambda Microvms`, `Lambda Core`), which is what the conformance harness signs with.
@@ -178,6 +178,6 @@ Two situations remain unrecorded because nothing reaches them. A `PENDING` VM an
 
 ## Health and introspection
 
-`/_m80/health` reports implemented operations against the model inventory, the mudflaps convention, plus the regions the store has been asked about. `/_m80/vm/{microvmId}/` reaches a VM's endpoint stub without forging a `Host` header. `POST /_m80/inject` arms a failure — a build that settles `FAILED`, or a connector that settles `FAILED` with one of the seven reason codes — and answers 404 naming the flag unless m80 was started with `-enable-injection`. See [Lifecycle](lifecycle.md#drift-levers).
+`/_m80/health` reports implemented operations against the model inventory, plus the regions the store has been asked about. `/_m80/vm/{microvmId}/` reaches a VM's endpoint stub without forging a `Host` header. `POST /_m80/inject` arms a failure — a build that settles `FAILED`, or a connector that settles `FAILED` with one of the seven reason codes — and answers 404 naming the flag unless m80 was started with `-enable-injection`. See [Lifecycle](lifecycle.md#drift-levers).
 
 There is no clock endpoint. Transitions run on an injected clock and Go tests advance it directly, but nothing exposes that over HTTP, so a black-box client cannot skip a delay — it waits, or it starts m80 with a shorter `-build-delay`. An earlier draft of this page described a `/_m80/clock` hook that was never built.

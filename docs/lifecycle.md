@@ -14,7 +14,7 @@ Three layers, each with its own state enum.
 
 Versions also carry `MicrovmImageVersionStatus` (`ACTIVE`, `INACTIVE`), a separate axis from build progress. Architecture is `ARM_64` on `GRAVITON` only, m80 rejects anything else the way the service would.
 
-Build takes a deterministic delay on the injected clock, default a few seconds of wall time when no test clock is attached, so demos feel real and tests run instant. A failure injection knob forces `FAILED` for compensation testing, the same lever mudflaps grew in v0.5.0 for deploy-failure injection, which chant Ops testing needed.
+Build takes a deterministic delay on the injected clock, default a few seconds of wall time when no test clock is attached, so demos feel real and tests run instant. A failure injection knob forces `FAILED` for compensation testing.
 
 Deletion is asynchronous, recorded live: `DeleteMicrovmImage` answers `200` with `state: DELETING`, the image stays listable until the delete drains, and its name stays reserved (a create during the window gets `400 "already exists"`). A delete while the first build is still running is refused outright with `400 "Cannot delete MicroVM image in its current state"`. m80 models both: the DELETING window on the clock, and the mid-build refusal.
 
@@ -55,7 +55,7 @@ Recording these at all needed a harness change. A step's `until` block polls to 
 | Resume | `SUSPENDED` back to `RUNNING` restores the state marker, a monotonic counter clients can read through the endpoint stub to prove state survived |
 | Terminate | Terminal. Subsequent mutations return `400 ValidationException`, recorded — neither modeled conflict type |
 
-Transient states settle on the injected clock with short deterministic delays, the mudflaps pattern verbatim. The clock hook advances time in tests, so a suspend-after-15-minutes policy is testable in microseconds.
+Transient states settle on the injected clock with short deterministic delays — a pattern proven in [mudflaps](https://github.com/INTENTIUS/mudflaps) before it was built here. The clock hook advances time in tests, so a suspend-after-15-minutes policy is testable in microseconds.
 
 ## Network connectors
 
@@ -63,7 +63,7 @@ Transient states settle on the injected clock with short deterministic delays, t
 
 ## Drift levers
 
-KubeMicroVM's drift detection and auto-suspend features watch for the service changing state underneath the CRs, so m80 can fail things the real service would only fail by bad luck. This is m80's version of mudflaps' failure injection, a feature the real service will never offer a test suite.
+KubeMicroVM's drift detection and auto-suspend features watch for the service changing state underneath the CRs, so m80 can fail things the real service would only fail by bad luck. This is failure injection doing what the real service never will for a test suite: breaking on request.
 
 Two levers: `images.Service.FailNextBuild` forces the next build of a named image to `FAILED`, and `connectors.Service.FailNext` settles the next connector of a given name into `FAILED` carrying any of the seven reason codes. Neither can be provoked against real AWS on demand — you cannot ask EC2 to run a subnet out of addresses — which is the whole reason they exist.
 

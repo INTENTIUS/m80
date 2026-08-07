@@ -4,7 +4,7 @@
 
 | Concern | Home | Why |
 |---------|------|-----|
-| Full-fidelity service emulation | m80 | Owned cadence against a churning preview-fresh API, small container the KubeMicroVM community can adopt, mudflaps mold |
+| Full-fidelity service emulation | m80 | Owned cadence against a churning preview-fresh API, small container the KubeMicroVM community can adopt — the [mudflaps](https://github.com/INTENTIUS/mudflaps) mold (m80's sibling emulator, for the Fly.io Machines API) |
 | `AWS::Lambda::MicrovmImage` and `AWS::Lambda::NetworkConnector` through CloudFormation | floci | CFN emulation can only live where the CFN engine lives. chant's `MicrovmApp` and the kit's image stack deploy through CFN |
 | Conformance contract | shared suite | See [conformance.md](conformance.md) |
 

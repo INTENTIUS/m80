@@ -20,7 +20,7 @@ The Lambda MicroVMs control plane and the minimal data-plane edges a client can 
 
 | Not emulated | Why |
 |--------------|-----|
-| Actually running guest code | m80 is control-plane. The endpoint stub is observable, not a VM. mudflaps drew the same line and it held |
+| Actually running guest code | m80 is control-plane. The endpoint stub is observable, not a VM. [mudflaps](https://github.com/INTENTIUS/mudflaps) — the same idea for the Fly.io Machines API — drew the same line and it held |
 | CloudFormation | Lives in floci where the CFN engine is, see [floci.md](floci.md) |
 | Replica pools, classes, sidecar injection | KubeMicroVM operator constructs, above the service API |
 | IAM evaluation | Roles and ARNs are accepted and echoed, never evaluated |
@@ -40,7 +40,7 @@ Some requests reach neither: the model permits them and nothing was ever recorde
 
 ## Fidelity anchors
 
-Wire shapes come from the AWS SDK service model. KubeMicroVM vendors the model JSON in `operator-aws-client/src/main/resources/codegen-resources/service-2.json`, and aws-sdk-go-v2 generates from the same source. Field parity with the generated Go client is the contract, mirroring mudflaps' fly-go rule.
+Wire shapes come from the AWS SDK service model. KubeMicroVM vendors the model JSON in `operator-aws-client/src/main/resources/codegen-resources/service-2.json`, and aws-sdk-go-v2 generates from the same source. Field parity with the generated Go client is the contract: the provider publishes that client continuously, so it is the wire-truth reference nothing hand-written can drift from.
 
 Behavioral truth comes from the AWS docs and, where docs are silent, from probing the real service and recording the answer in the conformance suite. Silence in the docs is never license to invent.
 
