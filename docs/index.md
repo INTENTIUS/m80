@@ -42,6 +42,6 @@ Then, in whatever order the question arrives in: [scope](scope.md) is what it em
 
 ## Status
 
-Released. All 29 operations answer, `/_m80/health` reports 29/29 with nothing pending, and the conformance suite runs 100 checks against fixtures recorded from live AWS. [KubeMicroVM's own UAT suite](kubemicrovm.md) passes 50 of its 63 cases, with every failure accounted for — three of them bugs in the operator, filed upstream and acknowledged.
+Released. All 29 operations answer, `/_m80/health` reports 29/29 with nothing pending, and the conformance suite runs 101 checks against fixtures recorded from live AWS. [KubeMicroVM's own UAT suite](kubemicrovm.md) runs against every commit in CI and passes 52 of its 63 cases, with every failure accounted for. The suite found three bugs in the operator; the sharpest — a finalizer that never cleared — was fixed upstream in v1.0.12 and verified here the day after.
 
 Nothing else like it exists. Verified 2026-07-29 across moto, LocalStack (archived), fakecloud, ministack, floci upstream and forks, and every public repo that codes against the MicroVM API. The service went GA 2026-06-22.

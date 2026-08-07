@@ -78,6 +78,12 @@ Facts the models could not state, learned during the fixture-recording runs.
 | Quota errors carry empty detail | `quotaCode`, `serviceCode`, `resourceId`, and `resourceType` are all present and all `null`. A client cannot branch on which quota was hit; only the message says |
 | Concurrency throttling is masked | The burst never produced `ThrottlingException` or any `ThrottleReason`, including `ConcurrentSnapshotCreateLimitExceeded`. The memory ceiling fires first and hides it. KubeMicroVM's QuotaGuard will meet 402 long before it meets a throttle on a default account |
 
+## Recorded corrections (2026-08-06, the double terminate)
+
+| Fact | Detail |
+|------|--------|
+| A second `TerminateMicrovm` on a `TERMINATED` VM is **200, idempotent** | Empty object, exactly like the first — not the 400 the suspend recording suggested. m80 had extrapolated the 400 onto it, and the guess wedged KubeMicroVM v1.0.12's cleanup loop against behaviour the real service never exhibits ([#83](https://github.com/INTENTIUS/m80/issues/83)). The probe that settled it also re-verified suspend-on-terminated as the recorded 400, so the terminated state refuses *changes* while accepting the one request that asks for what is already true |
+
 ## Recorded corrections (2026-08-01, the VM endpoint)
 
 The per-VM endpoint had never been recorded, because the conformance runner addressed the control plane and signed everything it sent. Giving a step its own `baseURL` and headers ([#42](https://github.com/INTENTIUS/m80/issues/42)) made it reachable, and four of m80's nine guesses were wrong.

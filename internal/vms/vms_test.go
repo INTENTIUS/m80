@@ -205,7 +205,11 @@ func TestTerminateWalksThroughTerminating(t *testing.T) {
 }
 
 // Recorded and surprising: a terminal-state mutation is a plain 400
-// ValidationException, not either conflict type the model offers.
+// ValidationException, not either conflict type the model offers. This test
+// used to drive the 400 with a second terminate — which turned out (recorded
+// 2026-08-06) to be the one mutation that answers 200 instead; suspend
+// carries the recorded 400 now, and TestTerminateOnTerminatedVMIsIdempotent200
+// below pins the exception.
 func TestMutatingTerminatedVMIs400Validation(t *testing.T) {
 	h := newHarness(t, stubImages{runnable: true})
 	id, _ := h.run(t)
@@ -213,7 +217,7 @@ func TestMutatingTerminatedVMIs400Validation(t *testing.T) {
 	h.do("DELETE", "/2025-09-09/microvms/"+id, nil)
 	h.clk.Advance(hop)
 
-	rec, doc := h.do("DELETE", "/2025-09-09/microvms/"+id, nil)
+	rec, doc := h.do("POST", "/2025-09-09/microvms/"+id+"/suspend", nil)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status %d, want 400", rec.Code)
 	}
@@ -600,6 +604,32 @@ func TestSuspendAndResumeOnTerminatedVMAre400(t *testing.T) {
 		if msg, _ := doc["message"].(string); !strings.Contains(msg, "has been terminated") {
 			t.Errorf("%s: message %q", action, msg)
 		}
+	}
+}
+
+// Recorded 2026-08-06 against live AWS: a second terminate on a TERMINATED
+// VM answers 200 with an empty object, exactly like the first. m80 used to
+// extrapolate the suspend-on-terminated 400 onto it, and that guess wedged
+// KubeMicroVM v1.0.12's cleanup loop — a retry the real service accepts
+// idempotently (upstream #51, m80 #83).
+func TestTerminateOnTerminatedVMIsIdempotent200(t *testing.T) {
+	h := newHarness(t, stubImages{runnable: true})
+	id := h.runIdle(t, 0, 0)
+	h.do("DELETE", "/2025-09-09/microvms/"+id, nil)
+	h.clk.Advance(hop)
+	if got := h.state(t, id); got != StateTerminated {
+		t.Fatalf("state %v, want TERMINATED", got)
+	}
+
+	rec, doc := h.do("DELETE", "/2025-09-09/microvms/"+id, nil)
+	if rec.Code != http.StatusOK {
+		t.Errorf("second terminate: status %d, want 200", rec.Code)
+	}
+	if len(doc) != 0 {
+		t.Errorf("second terminate: body %v, want empty object", doc)
+	}
+	if got := h.state(t, id); got != StateTerminated {
+		t.Errorf("state %v after second terminate, want TERMINATED", got)
 	}
 }
 

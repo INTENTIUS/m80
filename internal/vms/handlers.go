@@ -164,9 +164,12 @@ func (h *handlers) list(w http.ResponseWriter, r *http.Request) {
 	api.WriteJSON(w, http.StatusOK, map[string]any{"items": items, "nextToken": nil})
 }
 
-// mutable resolves the VM and rejects the one case the recording pinned down:
-// any state change on a terminated VM is a plain 400 ValidationException, not
-// either modeled conflict type. Suspend, resume and terminate share it.
+// mutable resolves the VM and rejects the case the recording pinned down:
+// a state change on a terminated VM is a plain 400 ValidationException, not
+// either modeled conflict type. Suspend and resume share it. Terminate does
+// NOT — see terminate; a second terminate was recorded 2026-08-06 as a plain
+// 200, and answering it with this 400 wedged a real consumer's cleanup loop
+// (KubeMicroVM v1.0.12, upstream #51) against behaviour AWS never exhibits.
 func (h *handlers) mutable(w http.ResponseWriter, r *http.Request) (*VM, bool) {
 	vm, ok := h.lookup(w, r)
 	if !ok {
@@ -205,12 +208,20 @@ func (h *handlers) resume(w http.ResponseWriter, r *http.Request) {
 	writeAccepted(w)
 }
 
+// terminate is idempotent on a VM that is already terminal, recorded from
+// live AWS 2026-08-06: the second DELETE answers 200 with an empty object,
+// exactly like the first (fixture lifecycle/terminate-terminated). This is
+// the same reasoning unrecorded.md applies to suspend-non-running — a
+// reconciler's retry must not be an error — except here it is no longer
+// reasoning, it is a recording.
 func (h *handlers) terminate(w http.ResponseWriter, r *http.Request) {
-	vm, ok := h.mutable(w, r)
+	vm, ok := h.lookup(w, r)
 	if !ok {
 		return
 	}
-	h.svc.Terminate(vm)
+	if snap := h.svc.Snapshot(vm); !snap.Terminal() {
+		h.svc.Terminate(vm)
+	}
 	writeAccepted(w)
 }
 

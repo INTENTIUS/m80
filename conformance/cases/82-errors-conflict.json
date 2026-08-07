@@ -115,6 +115,15 @@
       }
     },
     {
+      "name": "terminate-terminated",
+      "operation": "TerminateMicrovm",
+      "method": "DELETE",
+      "path": "/2025-09-09/microvms/${microvmId}",
+      "expect": {
+        "status": 200
+      }
+    },
+    {
       "name": "delete-image",
       "operation": "DeleteMicrovmImage",
       "method": "DELETE",

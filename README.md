@@ -52,9 +52,9 @@ The full documentation site is at [intentius.github.io/m80](https://intentius.gi
 
 ## Status
 
-Released. All 29 operations answer, `/_m80/health` reports 29/29 with nothing pending, and the conformance suite runs 100 checks against fixtures recorded from live AWS.
+Released. All 29 operations answer, `/_m80/health` reports 29/29 with nothing pending, and the conformance suite runs 101 checks against fixtures recorded from live AWS.
 
-Running KubeMicroVM's own 63-case UAT suite against m80 surfaced three issues in the operator — the sharpest a finalizer that never clears after a successful terminate, so a deleted CR hangs forever. All three are filed upstream and acknowledged. None needed an AWS account to find. 50 of the 63 pass, with [every failure accounted for](docs/kubemicrovm.md).
+Running KubeMicroVM's own 63-case UAT suite against m80 surfaced three issues in the operator — the sharpest a finalizer that never clears after a successful terminate, so a deleted CR hangs forever. All three were filed upstream; the finalizer fix shipped in their v1.0.12, verified here the day after. None needed an AWS account to find. 52 of the 63 pass, with [every failure accounted for](docs/kubemicrovm.md), and the suite runs against every commit in CI holding exactly that matrix.
 
 Nothing else like it exists. Verified 2026-07-29 across moto, LocalStack (archived), fakecloud, ministack, floci upstream and forks, and every public repo that codes against the MicroVM API. The service went GA 2026-06-22.
 
