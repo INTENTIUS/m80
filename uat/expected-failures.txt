@@ -1,0 +1,22 @@
+# The recorded pass matrix's failure set — one Robot test name per line.
+#
+# uat/assert-matrix.py holds a run to exactly this set, both directions: a
+# failure not listed here is a regression, and a listed failure that starts
+# passing means this file and docs/kubemicrovm.md's matrix must move with
+# reality. Why each of these fails is accounted for, line by line, in
+# docs/kubemicrovm.md's "Why the thirteen fail".
+#
+# Recorded 2026-08-06 against m80 v0.4.0 (source build) and operator 1.0.11.
+AUTO-02 Auto-Resume On Traffic
+INJ-08 Token Works To Call MicroVM
+MEM-07 Run VM From 4096 MiB Image
+NET-01 Internet Egress Connects To Public Internet
+NET-02 Default Egress Has Internet Access
+NET-04 VPC Egress VM Connects
+Pod Identity Association Exists
+QS-07 Curl Endpoint Returns OK
+QS-08 Teardown Delete VM
+RBAC-05 Authorized SA Gets Token Via Operator
+RBAC-06 Authorized SA Rejected For Different VM
+RS-06 Delete ReplicaSet Terminates All VMs
+Verify No Resources Remaining

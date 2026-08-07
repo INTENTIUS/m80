@@ -1,0 +1,116 @@
+name: uat
+
+# KubeMicroVM's own release gate, run per commit (#61).
+#
+# Their gate is the 63-case Robot Framework UAT, which upstream runs by hand
+# against a live, billed cluster before each release candidate. m80 exists to
+# make most of that suite free, so this workflow runs it the way the docs say
+# a person does: the stack up on k3d with the image built from this commit,
+# their suite unmodified from a pinned checkout, and the pass matrix gated in
+# BOTH directions — a new failure is a regression, and an expected failure
+# that starts passing means the recorded matrix must move with reality
+# (uat/expected-failures.txt and docs/kubemicrovm.md), not drift from it.
+#
+# The smoke job runs first and cheap: the landing page's own commands against
+# the same candidate image, because a docs prompt nobody executes is a docs
+# prompt that rots (the kubemicrovm-ops local-e2e's founding rule, applied
+# here).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: uat-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The KubeMicroVM checkout the suite runs from. Bumping it is a deliberate
+  # commit: their suite moving is exactly the event the matrix gate exists to
+  # notice, so it must not move silently underneath a green run.
+  KUBEMICROVM_REF: b3886991604593ebe21fd9b690e8686f01291207
+
+jobs:
+  # The landing page's commands, literally. `docker run` the candidate, the
+  # CLI call the "Give this to your agent" block opens with, and the health
+  # line the Status section claims. The CLI runs from the UAT runner image
+  # rather than the host so its version is pinned by a Dockerfile, not by
+  # whatever the runner shipped this week — same command, deterministic CLI.
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: build the candidate
+        run: docker build -q -t m80:candidate .
+
+      - name: the landing page, executed
+        run: |
+          docker network create m80-smoke
+          docker run -d --rm --name m80 --network m80-smoke m80:candidate
+          docker build -q -t m80-uat-runner uat/
+          docker run --rm --network m80-smoke --entrypoint aws \
+            -e AWS_ACCESS_KEY_ID=test -e AWS_SECRET_ACCESS_KEY=test \
+            m80-uat-runner --endpoint-url http://m80:4290 --region us-east-2 \
+            lambda-microvms list-microvm-images | grep -q '"items"'
+          docker run --rm --network m80-smoke --entrypoint sh m80-uat-runner \
+            -c "curl -s http://m80:4290/_m80/health" > health.json
+          python3 - <<'EOF'
+          import json
+          c = json.load(open("health.json"))["coverage"]
+          assert c["implemented"] == 29 and not c["notImplementedYet"], c
+          print(f"health: {c['implemented']}/29, nothing pending")
+          EOF
+
+  uat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: codriverlabs/KubeMicroVM
+          ref: ${{ env.KUBEMICROVM_REF }}
+          path: kubemicrovm
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: install k3d
+        run: curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
+
+      - name: build the candidate
+        run: docker build -q -t m80:candidate .
+
+      # up.sh imports a locally built image instead of pulling, which is the
+      # whole point here: the operator's own gate runs against this commit's
+      # m80, not against the last release.
+      - name: the stack, on the candidate
+        run: M80_IMAGE=m80:candidate ./uat/up.sh
+
+      - name: their suite, unmodified
+        run: KUBEMICROVM="${GITHUB_WORKSPACE}/kubemicrovm" ./uat/run.sh || true
+
+      # The suite exiting non-zero is expected — thirteen failures are the
+      # recorded matrix. The gate is the exact set, both directions.
+      - name: the matrix holds
+        run: python3 uat/assert-matrix.py uat-results/output.xml uat/expected-failures.txt
+
+      - name: what the operator saw
+        if: always()
+        run: kubectl -n kube-microvm logs deploy/kube-microvm-operator --tail=100 || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: uat-results
+          path: uat-results/
+          retention-days: 14
