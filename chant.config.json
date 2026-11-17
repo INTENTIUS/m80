@@ -25,7 +25,7 @@
     ],
     "artifacts": [
       {
-        "name": "m80",
+        "name": "binaries",
         "build": "CGO_ENABLED=0 GOOS=$CHANT_RELEASE_OS GOARCH=$CHANT_RELEASE_ARCH go build -trimpath -ldflags \"-s -w -X github.com/intentius/m80.Version=$CHANT_RELEASE_LABEL\" -o \"dist/m80_${CHANT_RELEASE_OS}_${CHANT_RELEASE_ARCH}\" ./cmd/m80",
         "outputs": [
           "dist/m80_{os}_{arch}"
@@ -41,7 +41,7 @@
         "name": "checksums",
         "checksums": "dist/checksums.txt",
         "of": [
-          "m80"
+          "binaries"
         ]
       }
     ],
@@ -51,7 +51,7 @@
         "forge": "github",
         "repo": "INTENTIUS/m80",
         "assets": [
-          "artifact:m80",
+          "artifact:binaries",
           "artifact:checksums"
         ],
         "notes": {
