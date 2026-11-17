@@ -1,3 +1,7 @@
 site/
 uat/cluster/node_modules/
 uat/cluster/dist/
+
+# chant release builds
+/dist/
+/out/

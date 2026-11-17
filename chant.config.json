@@ -1,0 +1,45 @@
+{
+  "release": {
+    "tag": "v{version}",
+    "legacyTags": ["v"],
+    "green": "forge-checks",
+    "images": [
+      {
+        "name": "m80",
+        "dockerfile": "Dockerfile",
+        "platforms": ["linux/amd64", "linux/arm64"],
+        "args": { "VERSION": "{version}" },
+        "labels": {
+          "org.opencontainers.image.source": "https://github.com/intentius/m80",
+          "org.opencontainers.image.version": "{version}",
+          "org.opencontainers.image.licenses": "MIT"
+        }
+      }
+    ],
+    "artifacts": [
+      {
+        "name": "m80",
+        "build": "CGO_ENABLED=0 GOOS=$CHANT_RELEASE_OS GOARCH=$CHANT_RELEASE_ARCH go build -trimpath -ldflags \"-s -w -X github.com/intentius/m80.Version=$CHANT_RELEASE_LABEL\" -o \"dist/m80_${CHANT_RELEASE_OS}_${CHANT_RELEASE_ARCH}\" ./cmd/m80",
+        "outputs": ["dist/m80_{os}_{arch}"],
+        "platforms": ["linux/amd64", "linux/arm64", "darwin/amd64", "darwin/arm64"]
+      },
+      { "name": "checksums", "checksums": "dist/checksums.txt", "of": ["m80"] }
+    ],
+    "publish": [
+      {
+        "type": "forge",
+        "forge": "github",
+        "repo": "INTENTIUS/m80",
+        "assets": ["artifact:m80", "artifact:checksums"],
+        "notes": { "generate": "forge" }
+      },
+      {
+        "type": "oci",
+        "image": "dist/images/m80.tar",
+        "repository": "ghcr.io/intentius/m80",
+        "tags": ["{label}", "v{label}", "latest"]
+      }
+    ],
+    "workflow": { "trigger": "dispatch" }
+  }
+}
