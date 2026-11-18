@@ -11,6 +11,13 @@
 # finalizer bug m80 found (upstream #51): QS-08 and RS-06 left this list
 # there. 99 Final Cleanup remains, for a new reason the account explains:
 # it inherits debris from the endpoint-race failures above it.
+#
+# `flaky: ` lines are cases that pass on some runs and fail on others; either
+# outcome is accepted and reported. RBAC-05 loses the 60s endpoint race to the
+# operator's resync on most runs and wins it on some (4 of the last 17 uat
+# runs); RBAC-06 reuses the pod RBAC-05 creates, so it fails with an empty
+# result when RBAC-05 loses and passes when RBAC-05 wins. The two flip
+# together. See INTENTIUS/m80#96.
 AUTO-02 Auto-Resume On Traffic
 INJ-08 Token Works To Call MicroVM
 MEM-07 Run VM From 4096 MiB Image
@@ -19,6 +26,6 @@ NET-02 Default Egress Has Internet Access
 NET-04 VPC Egress VM Connects
 Pod Identity Association Exists
 QS-07 Curl Endpoint Returns OK
-RBAC-05 Authorized SA Gets Token Via Operator
-RBAC-06 Authorized SA Rejected For Different VM
+flaky: RBAC-05 Authorized SA Gets Token Via Operator
+flaky: RBAC-06 Authorized SA Rejected For Different VM
 Verify No Resources Remaining

@@ -10,7 +10,10 @@ with reality, and a gate that lets the record rot in the flattering
 direction is how "50 of 63" stops being true without anyone deciding it.
 
 The expectations file is one full Robot test name per line, `#` comments and
-blank lines ignored. Skipped tests count as neither passed nor failed.
+blank lines ignored. A line starting `flaky: ` names a case that is known to
+pass on some runs and fail on others: either outcome is accepted and reported,
+neither is fatal. Every other line is strict. Skipped tests count as neither
+passed nor failed.
 """
 from __future__ import annotations
 
@@ -19,16 +22,29 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 
+FLAKY = "flaky: "
+
+
+def read_expectations(text: str) -> tuple[set[str], set[str]]:
+    """Return (strict, flaky) test-name sets."""
+    strict, flaky = set(), set()
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith(FLAKY):
+            flaky.add(line[len(FLAKY):].strip())
+        else:
+            strict.add(line)
+    return strict, flaky
+
+
 def main() -> int:
     if len(sys.argv) != 3:
         print(__doc__)
         return 2
     output = ET.parse(sys.argv[1]).getroot()
-    expected = {
-        line.strip()
-        for line in Path(sys.argv[2]).read_text().splitlines()
-        if line.strip() and not line.strip().startswith("#")
-    }
+    expected, flaky = read_expectations(Path(sys.argv[2]).read_text())
 
     passed, failed = set(), set()
     for test in output.iter("test"):
@@ -40,8 +56,14 @@ def main() -> int:
     regressions = sorted(failed - expected)
     surprises = sorted(expected & passed)
     missing = sorted(expected - failed - passed)
+    regressions = sorted(set(regressions) - flaky)
+    flaky_ran = sorted(flaky & (failed | passed))
+    flaky_absent = sorted(flaky - failed - passed)
 
-    print(f"{len(passed)} passed, {len(failed)} failed ({len(expected)} expected)")
+    print(
+        f"{len(passed)} passed, {len(failed)} failed "
+        f"({len(expected)} expected, {len(flaky)} flaky)"
+    )
     ok = True
     if regressions:
         ok = False
@@ -59,6 +81,13 @@ def main() -> int:
         print("\nExpected failures that did not run at all — the suite moved underneath us:")
         for name in missing:
             print(f"  ? {name}")
+    if flaky_absent:
+        ok = False
+        print("\nFlaky cases that did not run at all — the suite moved underneath us:")
+        for name in flaky_absent:
+            print(f"  ? {name}")
+    for name in flaky_ran:
+        print(f"flaky (not fatal): {'PASS' if name in passed else 'FAIL'}  {name}")
     if ok:
         print("matrix holds: every failure expected, every expectation still failing")
     return 0 if ok else 1
