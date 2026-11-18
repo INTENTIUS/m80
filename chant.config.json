@@ -70,7 +70,8 @@
       }
     ],
     "workflow": {
-      "trigger": "dispatch"
+      "trigger": "dispatch",
+      "file": ".github/workflows/publish.yml"
     }
   }
 }

@@ -57,7 +57,7 @@ jobs:
 
   # The Go tests exercise m80's internals; nothing in them runs the
   # conformance suite, which is the part that says m80 answers like AWS. That
-  # gate lived only in release.yml, so a change could diverge from every
+  # gate lived only in publish.yml, so a change could diverge from every
   # recorded fixture and CI would stay green until someone cut a tag.
   conformance:
     name: Conformance against a live binary
